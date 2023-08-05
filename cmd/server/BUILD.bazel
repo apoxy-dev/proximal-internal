@@ -79,7 +79,7 @@ container_push(
     format = "Docker",
     image = ":image",
     registry = "docker.io",
-    repository = "apoxy/proximal",
+    repository = "apoxy/proximal-internal",
     tag = "{STABLE_GIT_SHA}-" + select({
 	"@platforms//cpu:arm64": "arm64",
 	"@platforms//cpu:x86_64": "amd64",
