@@ -6,7 +6,7 @@
 *.dylib
 
 # Bazel
-/bazel-proximal
+/bazel-proximal-internal
 /bazel-bin
 /bazel-out
 /bazel-testlogs

@@ -52,10 +52,13 @@ func fileExists(filename string) bool {
 	return !info.IsDir()
 }
 
-func staticFileServer(h http.Handler) http.Handler {
+func staticFileServer(wasmFilesDir string, h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/v1/") {
 			h.ServeHTTP(w, r)
+			return
+		} else if strings.HasPrefix(r.URL.Path, "/wasm_builds/") && strings.HasSuffix(r.URL.Path, "/wasm.out") {
+			http.ServeFile(w, r, wasmFilesDir+strings.TrimPrefix(r.URL.Path, "/wasm_builds"))
 			return
 		} else {
 			if r.URL.Path == "/" || !fileExists(*StaticDir+"/"+r.URL.Path) {
@@ -140,7 +143,7 @@ func attachPprofHandlers(mux *http.ServeMux) {
 }
 
 // NewApoxyServer returns a new gRPC server.
-func NewApoxyServer(opts ...ServerOption) *ApoxyServer {
+func NewApoxyServer(wasmFilesDir string, opts ...ServerOption) *ApoxyServer {
 	flag.Parse()
 	rand.Seed(time.Now().UnixNano())
 
@@ -173,7 +176,7 @@ func NewApoxyServer(opts ...ServerOption) *ApoxyServer {
 	)
 	s.GwSrv = &http.Server{
 		Addr:           fmt.Sprintf(":%d", *GatewayPort),
-		Handler:        staticFileServer(slowReplyWrapper(corsAllowAllWrapper(s.Gateway))),
+		Handler:        staticFileServer(wasmFilesDir, slowReplyWrapper(corsAllowAllWrapper(s.Gateway))),
 		ReadTimeout:    10 * time.Second,
 		WriteTimeout:   30 * time.Second,
 		MaxHeaderBytes: 1 << 20,

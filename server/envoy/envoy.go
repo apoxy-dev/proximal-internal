@@ -2,7 +2,10 @@ package envoy
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"time"
@@ -50,6 +53,8 @@ const (
 	defaultUpstreamCluster = "default_upstream"
 	xdsClusterName         = "xds_cluster"
 	alsClusterName         = "als_cluster"
+
+	controlUpstreamCluster = "control_upstream"
 )
 
 // SnapshotManager is responsible for managing the Envoy snapshot cache.
@@ -63,6 +68,9 @@ type SnapshotManager struct {
 	eSvc      endpointv1.EndpointServiceClient
 	xdsServer xds.Server
 	cache     cache.SnapshotCache
+
+	controlDomain string
+	fileHashes    map[string]string
 }
 
 // NewSnapshotManager returns a new *SnapshotManager.
@@ -72,18 +80,21 @@ func NewSnapshotManager(
 	eSvc endpointv1.EndpointServiceClient,
 	buildBaseDir string,
 	host string, port int,
-	syncInterval time.Duration) *SnapshotManager {
-
+	syncInterval time.Duration,
+	controlDomain string,
+) *SnapshotManager {
 	snapshotCache := cache.NewSnapshotCache(false, cache.IDHash{}, nil)
 	return &SnapshotManager{
-		listenHost:   host,
-		listenPort:   port,
-		syncInterval: syncInterval,
-		mSvc:         mSvc,
-		eSvc:         eSvc,
-		buildBaseDir: buildBaseDir,
-		xdsServer:    xds.NewServer(ctx, snapshotCache, nil),
-		cache:        snapshotCache,
+		listenHost:    host,
+		listenPort:    port,
+		syncInterval:  syncInterval,
+		mSvc:          mSvc,
+		eSvc:          eSvc,
+		buildBaseDir:  buildBaseDir,
+		xdsServer:     xds.NewServer(ctx, snapshotCache, nil),
+		cache:         snapshotCache,
+		controlDomain: controlDomain,
+		fileHashes:    make(map[string]string),
 	}
 }
 
@@ -180,7 +191,8 @@ func (s *SnapshotManager) clusterResources(es []*endpointv1.Endpoint) ([]types.R
 								SocketAddress: &core.SocketAddress{
 									Address: addr.Host,
 									PortSpecifier: &core.SocketAddress_PortValue{
-										PortValue: uint32(addr.Port)},
+										PortValue: uint32(addr.Port),
+									},
 								},
 							},
 						},
@@ -231,6 +243,18 @@ func (s *SnapshotManager) httpConnectionManager(ctx context.Context, mds []*midd
 			continue
 		}
 
+		sha256, ok := s.fileHashes[wasmOut]
+		var err error
+		if !ok {
+			sha256, err = CalculateFileSHA256(wasmOut)
+			if err != nil {
+				return nil, err
+			}
+			s.fileHashes[wasmOut] = sha256
+		}
+
+		buildPath := filepath.Join(middleware.Slug, middleware.LiveBuildSha, "wasm.out")
+
 		wasmConfig, err := anypb.New(&wrapperspb.StringValue{
 			Value: middleware.RuntimeParams.ConfigString,
 		})
@@ -243,11 +267,16 @@ func (s *SnapshotManager) httpConnectionManager(ctx context.Context, mds []*midd
 					VmConfig: &wasmv3.VmConfig{
 						Runtime: "envoy.wasm.runtime.v8",
 						Code: &core.AsyncDataSource{
-							Specifier: &core.AsyncDataSource_Local{
-								Local: &core.DataSource{
-									Specifier: &core.DataSource_Filename{
-										Filename: wasmOut,
+							Specifier: &core.AsyncDataSource_Remote{
+								Remote: &core.RemoteDataSource{
+									HttpUri: &core.HttpUri{
+										Uri: fmt.Sprintf("https://%s/wasm_builds/%s", s.controlDomain, buildPath),
+										HttpUpstreamType: &core.HttpUri_Cluster{
+											Cluster: controlUpstreamCluster,
+										},
+										Timeout: durationpb.New(10 * time.Second),
 									},
+									Sha256: sha256,
 								},
 							},
 						},
@@ -411,6 +440,22 @@ func (s *SnapshotManager) sync(ctx context.Context) error {
 		}
 		return fmt.Errorf("failed to list endpoints: %v", err)
 	}
+
+	// Append the control upstream cluster.
+	ersp.Endpoints = append(ersp.GetEndpoints(), &endpointv1.Endpoint{
+		Cluster:         controlUpstreamCluster,
+		DefaultUpstream: false,
+		Status: &endpointv1.EndpointStatus{
+			IsDomain: true,
+		},
+		Addresses: []*endpointv1.Address{{
+			Host: s.controlDomain,
+			Port: 443,
+		}},
+		DnsLookupFamily: endpointv1.Endpoint_V4_ONLY,
+		UseTls:          true,
+	})
+
 	cls, err := s.clusterResources(ersp.GetEndpoints())
 	if err != nil {
 		return err
@@ -471,4 +516,28 @@ func (m *SnapshotManager) RegisterXDS(srv *grpc.Server) {
 
 func (s *SnapshotManager) Shutdown() {
 	s.cache = nil
+}
+
+// CalculateFileSHA256 computes the SHA-256 hash of a file.
+func CalculateFileSHA256(filePath string) (string, error) {
+	// Open the file
+	file, err := os.Open(filePath)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	// Create a new SHA-256 hasher
+	hasher := sha256.New()
+
+	// Copy the file's contents into the hasher
+	if _, err := io.Copy(hasher, file); err != nil {
+		return "", err
+	}
+
+	// Get the final hash and convert it to a hexadecimal string
+	hash := hasher.Sum(nil)
+	hashString := hex.EncodeToString(hash)
+
+	return hashString, nil
 }

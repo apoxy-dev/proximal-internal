@@ -35,16 +35,23 @@ var (
 
 	localMode    = flag.Bool("local_mode", true, "Run in local mode. (Launches a Temporalite server.)")
 	buildDir     = flag.String("build_work_dir", "/tmp/proximal", "Base path for build artifacts.")
-	watchIgnores = flag.String("watch_ignores", "^README.md$", "Comma-separated list of paths to ignore when watching for changes.")
+	watchIgnores = flag.String(
+		"watch_ignores",
+		"^README.md$",
+		"Comma-separated list of paths to ignore when watching for changes.",
+	)
 
 	envoyPath       = flag.String("envoy_path", "", "Path to Envoy binary.")
 	xdsListenHost   = flag.String("xds_host", "0.0.0.0", "XDS host.")
 	xdsListenPort   = flag.Int("xds_port", 18000, "XDS port.")
 	xdsSyncInterval = flag.Duration("xds_sync_interval", 10*time.Second, "How often to sync XSDs snapshot.")
+
+	controlDomain = flag.String("control_domain", "org_id.ctl.apoxy.io", "Control server domain name.")
 )
 
 func main() {
 	s := server.NewApoxyServer(
+		*buildDir,
 		server.WithHandlers(middlewarev1.RegisterMiddlewareServiceHandlerFromEndpoint),
 		server.WithHandlers(logsv1.RegisterLogsServiceHandlerFromEndpoint),
 		server.WithHandlers(endpointv1.RegisterEndpointServiceHandlerFromEndpoint),
@@ -131,6 +138,7 @@ func main() {
 		*xdsListenHost,
 		*xdsListenPort,
 		*xdsSyncInterval,
+		*controlDomain,
 	)
 	envoyMgr.RegisterXDS(s.GRPC)
 	go func() {
