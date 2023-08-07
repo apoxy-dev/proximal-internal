@@ -1,4 +1,4 @@
-module github.com/apoxy-dev/proximal-internal
+module github.com/apoxy-dev/proximal
 
 go 1.20
 
