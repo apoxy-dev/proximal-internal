@@ -42,8 +42,8 @@ var (
 	)
 
 	envoyPath       = flag.String("envoy_path", "", "Path to Envoy binary.")
-	xdsListenHost   = flag.String("xds_host", "0.0.0.0", "XDS host.")
-	xdsListenPort   = flag.Int("xds_port", 18000, "XDS port.")
+	envoyListenHost = flag.String("envoy_host", "0.0.0.0", "Envoy host to listen on.")
+	envoyListenPort = flag.Int("envoy_port", 18000, "Envoy port to listen on.")
 	xdsSyncInterval = flag.Duration("xds_sync_interval", 10*time.Second, "How often to sync XSDs snapshot.")
 
 	controlDomain = flag.String("control_domain", "org_id.ctl.apoxy.io", "Control server domain name.")
@@ -135,8 +135,8 @@ func main() {
 		middlewarev1.NewMiddlewareServiceClient(grpcClient),
 		endpointv1.NewEndpointServiceClient(grpcClient),
 		*buildDir,
-		*xdsListenHost,
-		*xdsListenPort,
+		*envoyListenHost,
+		*envoyListenPort,
 		*xdsSyncInterval,
 		*controlDomain,
 	)

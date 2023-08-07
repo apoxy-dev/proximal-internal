@@ -382,20 +382,27 @@ func (s *SnapshotManager) httpConnectionManager(ctx context.Context, mds []*midd
 	return anypb.New(hcm)
 }
 
-func (s *SnapshotManager) listenerResources(ctx context.Context, mds []*middlewarev1.Middleware) ([]types.Resource, error) {
+func (s *SnapshotManager) listenerResources(ctx context.Context, nodeID string, mds []*middlewarev1.Middleware) ([]types.Resource, error) {
 	lst := &listenerv3.Listener{
-		Name: "main",
-		Address: &core.Address{
-			Address: &core.Address_SocketAddress{
-				SocketAddress: &core.SocketAddress{
-					Protocol: core.SocketAddress_TCP,
-					Address:  s.listenHost,
-					PortSpecifier: &core.SocketAddress_PortValue{
-						PortValue: uint32(s.listenPort),
-					},
+		Name:    "main",
+		Address: &core.Address{},
+	}
+	if s.listenHost == "" { // unix domain socket
+		lst.Address.Address = &core.Address_Pipe{
+			Pipe: &core.Pipe{
+				Path: fmt.Sprintf("/tmp/%s.sock", nodeID),
+			},
+		}
+	} else {
+		lst.Address.Address = &core.Address_SocketAddress{
+			SocketAddress: &core.SocketAddress{
+				Protocol: core.SocketAddress_TCP,
+				Address:  s.listenHost,
+				PortSpecifier: &core.SocketAddress_PortValue{
+					PortValue: uint32(s.listenPort),
 				},
 			},
-		},
+		}
 	}
 
 	hcmpb, err := s.httpConnectionManager(ctx, mds)
@@ -425,10 +432,6 @@ func (s *SnapshotManager) sync(ctx context.Context) error {
 			return nil
 		}
 		return fmt.Errorf("failed to list middlewares: %v", err)
-	}
-	ls, err := s.listenerResources(ctx, mrsp.GetMiddlewares())
-	if err != nil {
-		return err
 	}
 
 	ersp, err := s.eSvc.InternalListEndpoints(ctx, &emptypb.Empty{})
@@ -461,26 +464,30 @@ func (s *SnapshotManager) sync(ctx context.Context) error {
 		return err
 	}
 
-	log.Infof("syncing snapshot (id:%d) for %d endpoints", id, len(ersp.GetEndpoints()))
-
-	snapshot, err := cache.NewSnapshot(
-		fmt.Sprintf("%d.0", id),
-		map[resource.Type][]types.Resource{
-			resource.ClusterType:  cls,
-			resource.ListenerType: ls,
-		},
-	)
-	if err != nil {
-		return err
-	}
-	if err := snapshot.Consistent(); err != nil {
-		return err
-	}
-
 	nodeIDs := s.cache.GetStatusKeys()
 	for _, nodeID := range nodeIDs {
-		err := s.cache.SetSnapshot(ctx, nodeID, snapshot)
+		ls, err := s.listenerResources(ctx, nodeID, mrsp.GetMiddlewares())
 		if err != nil {
+			return err
+		}
+
+		log.Infof("syncing snapshot id:%d for node:%v with %d endpoints", id, nodeID, len(ersp.GetEndpoints()))
+
+		snapshot, err := cache.NewSnapshot(
+			fmt.Sprintf("%d.0", id),
+			map[resource.Type][]types.Resource{
+				resource.ClusterType:  cls,
+				resource.ListenerType: ls,
+			},
+		)
+		if err != nil {
+			return err
+		}
+		if err := snapshot.Consistent(); err != nil {
+			return err
+		}
+
+		if err = s.cache.SetSnapshot(ctx, nodeID, snapshot); err != nil {
 			log.Warnf("error setting snapshot for node %s: %v", nodeID, err)
 		}
 	}
