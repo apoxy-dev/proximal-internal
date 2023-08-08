@@ -53,6 +53,8 @@ message Endpoint {
 
   Healthcheck healthcheck = 7;
 
+  bool is_magic = 10;
+
   google.protobuf.Timestamp created_at = 8;
 
   google.protobuf.Timestamp updated_at = 9;

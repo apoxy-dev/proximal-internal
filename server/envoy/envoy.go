@@ -71,6 +71,7 @@ type SnapshotManager struct {
 
 	controlDomain string
 	fileHashes    map[string]string
+	syncCh        chan struct{}
 }
 
 // NewSnapshotManager returns a new *SnapshotManager.
@@ -95,6 +96,7 @@ func NewSnapshotManager(
 		cache:         snapshotCache,
 		controlDomain: controlDomain,
 		fileHashes:    make(map[string]string),
+		syncCh:        make(chan struct{}),
 	}
 }
 
@@ -502,6 +504,10 @@ func (s *SnapshotManager) sync(ctx context.Context) error {
 func (s *SnapshotManager) Run(ctx context.Context) error {
 	for {
 		select {
+		case <-s.syncCh:
+			if err := s.sync(ctx); err != nil {
+				log.Errorf("error syncing snapshot: %v", err)
+			}
 		case <-time.After(s.syncInterval):
 			if err := s.sync(ctx); err != nil {
 				log.Errorf("error syncing snapshot: %v", err)
@@ -511,6 +517,15 @@ func (s *SnapshotManager) Run(ctx context.Context) error {
 		}
 	}
 	panic("unreachable")
+}
+
+func (s *SnapshotManager) TriggerUpdate(ctx context.Context) error {
+	select {
+	case s.syncCh <- struct{}{}:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	return nil
 }
 
 func (m *SnapshotManager) RegisterXDS(srv *grpc.Server) {

@@ -3,8 +3,10 @@ INSERT INTO endpoints (
   cluster,
   is_domain,
   use_tls,
-  lookup_family
+  lookup_family,
+  is_magic
 ) VALUES (
+  ?,
   ?,
   ?,
   ?,
@@ -30,6 +32,7 @@ SET
   is_domain = ?,
   use_tls = ?,
   lookup_family = ?,
+  is_magic = ?,
   updated_at = STRFTIME('%Y-%m-%d %H:%M:%f', 'NOW')
 WHERE cluster = ?
 RETURNING *;

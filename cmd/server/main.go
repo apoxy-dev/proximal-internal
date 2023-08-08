@@ -126,10 +126,6 @@ func main() {
 	lsvc := api.NewLogsService(db)
 	lsvc.RegisterALS(s.GRPC)
 
-	middlewarev1.RegisterMiddlewareServiceServer(s.GRPC, api.NewMiddlewareService(db, tc, fw))
-	logsv1.RegisterLogsServiceServer(s.GRPC, lsvc)
-	endpointv1.RegisterEndpointServiceServer(s.GRPC, api.NewEndpointService(db, tc))
-
 	envoyMgr := envoy.NewSnapshotManager(
 		s.Context,
 		middlewarev1.NewMiddlewareServiceClient(grpcClient),
@@ -159,6 +155,10 @@ func main() {
 			log.Fatalf("e.Run() error: %v", err)
 		}
 	}()
+
+	middlewarev1.RegisterMiddlewareServiceServer(s.GRPC, api.NewMiddlewareService(db, tc, fw))
+	logsv1.RegisterLogsServiceServer(s.GRPC, lsvc)
+	endpointv1.RegisterEndpointServiceServer(s.GRPC, api.NewEndpointService(db, tc, envoyMgr))
 
 	go func() {
 		exitCh := make(chan os.Signal, 1) // Buffered because sender is not waiting.

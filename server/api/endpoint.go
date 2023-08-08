@@ -16,19 +16,22 @@ import (
 	"github.com/apoxy-dev/proximal/core/log"
 	serverdb "github.com/apoxy-dev/proximal/server/db"
 	sqlc "github.com/apoxy-dev/proximal/server/db/sql"
+	"github.com/apoxy-dev/proximal/server/envoy"
 
 	endpointv1 "github.com/apoxy-dev/proximal/api/endpoint/v1"
 )
 
 type EndpointService struct {
-	db *serverdb.DB
-	tc tclient.Client
+	db          *serverdb.DB
+	tc          tclient.Client
+	snapshotMgr *envoy.SnapshotManager
 }
 
-func NewEndpointService(db *serverdb.DB, tc tclient.Client) *EndpointService {
+func NewEndpointService(db *serverdb.DB, tc tclient.Client, snapshotMgr *envoy.SnapshotManager) *EndpointService {
 	return &EndpointService{
-		db: db,
-		tc: tc,
+		db:          db,
+		tc:          tc,
+		snapshotMgr: snapshotMgr,
 	}
 }
 
@@ -96,7 +99,7 @@ func isDomainName(s string) bool {
 	return nonNumeric
 }
 
-func (s *EndpointService) validateAddrs(addrs []*endpointv1.Address) (isDomain bool, err error) {
+func (s *EndpointService) validateAddrs(isMagic bool, addrs []*endpointv1.Address) (isDomain bool, err error) {
 	for i, addr := range addrs {
 		isAddrDomain := false
 		_, err := netip.ParseAddr(addr.GetHost())
@@ -106,6 +109,11 @@ func (s *EndpointService) validateAddrs(addrs []*endpointv1.Address) (isDomain b
 			}
 			isAddrDomain = true
 		}
+
+		if isMagic && !isAddrDomain {
+			return false, errors.New("magic endpoints must be domains")
+		}
+
 		if isAddrDomain != isDomain {
 			if i == 0 {
 				isDomain = isAddrDomain
@@ -113,6 +121,7 @@ func (s *EndpointService) validateAddrs(addrs []*endpointv1.Address) (isDomain b
 				return false, fmt.Errorf("cannot mix domains and IPs")
 			}
 		}
+
 		if addr.GetPort() == 0 {
 			return false, errors.New("port cannot be 0")
 		}
@@ -130,6 +139,7 @@ func endpointFromRow(row sqlc.Endpoint, defaultUpstream bool, addrs []*endpointv
 		},
 		UseTls:          row.UseTls.Bool,
 		DnsLookupFamily: endpointv1.Endpoint_DNSLookupFamily(endpointv1.Endpoint_DNSLookupFamily_value[row.LookupFamily]),
+		IsMagic:         row.IsMagic.Bool,
 		CreatedAt:       timestamppb.New(row.CreatedAt.Time),
 		UpdatedAt:       timestamppb.New(row.UpdatedAt.Time),
 	}
@@ -156,7 +166,7 @@ func (s *EndpointService) CreateEndpoint(
 ) (*endpointv1.Endpoint, error) {
 	log.Infof("CreateEndpoint: %v", req.Endpoint)
 
-	isDomain, err := s.validateAddrs(req.Endpoint.GetAddresses())
+	isDomain, err := s.validateAddrs(req.Endpoint.GetIsMagic(), req.Endpoint.GetAddresses())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
@@ -182,6 +192,7 @@ func (s *EndpointService) CreateEndpoint(
 		IsDomain:     isDomain,
 		UseTls:       sql.NullBool{Bool: req.Endpoint.GetUseTls(), Valid: true},
 		LookupFamily: dnsLookupFamilyToSQL(req.Endpoint.GetDnsLookupFamily()),
+		IsMagic:      sql.NullBool{Bool: req.Endpoint.GetIsMagic(), Valid: true},
 	})
 	if err != nil {
 		log.Errorf("failed to create endpoint: %v", err)
@@ -218,6 +229,13 @@ func (s *EndpointService) CreateEndpoint(
 		log.Infof("CreateEndpoint: Set default upstream: %v", e.Cluster)
 		if err := qtx.SetDefaultUpstream(ctx, e.Cluster); err != nil {
 			log.Errorf("failed to set default upstream: %v", err)
+			return nil, status.Error(codes.Internal, "failed to create endpoint")
+		}
+	}
+
+	if req.Endpoint.GetIsMagic() {
+		if err := s.snapshotMgr.TriggerUpdate(ctx); err != nil {
+			log.Errorf("failed to trigger snapshot update: %v", err)
 			return nil, status.Error(codes.Internal, "failed to create endpoint")
 		}
 	}
@@ -281,7 +299,7 @@ func (s *EndpointService) UpdateEndpoint(
 	ctx context.Context,
 	req *endpointv1.UpdateEndpointRequest,
 ) (*endpointv1.Endpoint, error) {
-	isDomain, err := s.validateAddrs(req.Endpoint.GetAddresses())
+	isDomain, err := s.validateAddrs(req.Endpoint.GetIsMagic(), req.Endpoint.GetAddresses())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
@@ -366,9 +384,17 @@ func (s *EndpointService) UpdateEndpoint(
 			IsDomain:     isDomain,
 			UseTls:       sql.NullBool{Bool: req.Endpoint.GetUseTls(), Valid: true},
 			LookupFamily: dnsLookupFamilyToSQL(req.Endpoint.GetDnsLookupFamily()),
+			IsMagic:      sql.NullBool{Bool: req.Endpoint.GetIsMagic(), Valid: true},
 		}); err != nil {
 			log.Errorf("failed to update endpoint is_domain: %v", err)
 			return nil, status.Error(codes.Internal, "failed to update endpoint")
+		}
+	}
+
+	if req.Endpoint.GetIsMagic() {
+		if err := s.snapshotMgr.TriggerUpdate(ctx); err != nil {
+			log.Errorf("failed to trigger snapshot update: %v", err)
+			return nil, status.Error(codes.Internal, "failed to create endpoint")
 		}
 	}
 

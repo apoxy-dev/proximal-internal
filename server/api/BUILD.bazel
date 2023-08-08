@@ -18,6 +18,7 @@ go_library(
         "//core/log",
         "//server/db",
         "//server/db/sql:sql_library",
+        "//server/envoy",
         "//server/ingest",
         "//server/watcher",
         "@com_github_envoyproxy_go_control_plane//envoy/data/accesslog/v3:accesslog",
