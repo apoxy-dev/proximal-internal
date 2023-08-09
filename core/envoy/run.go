@@ -57,18 +57,32 @@ func (r *Release) DownloadBinaryFromGitHub(ctx context.Context) (io.ReadCloser, 
 type Runtime struct {
 	EnvoyPath           string
 	BootstrapConfigPath string
+	BootstrapConfigYAML string
 	Release             *Release
+	// Args are additional arguments to pass to Envoy.
+	Args []string
 
 	cmd *exec.Cmd
 }
 
 func (r *Runtime) run(ctx context.Context) error {
 	id := uuid.New().String()
-	log.Infof("running envoy withe node: { id: %s }", id)
-	args := []string{
-		"-c", r.BootstrapConfigPath,
-		"--config-yaml", fmt.Sprintf(`node: { id: "%s", cluster: "proximal" }`, id),
+	configYAML := fmt.Sprintf(`node: { id: "%s", cluster: "proximal" }`, id)
+	if r.BootstrapConfigYAML != "" {
+		configYAML = r.BootstrapConfigYAML
 	}
+	log.Infof("envoy YAML config: %s", configYAML)
+
+	args := []string{
+		"--config-yaml", configYAML,
+	}
+
+	if r.BootstrapConfigPath != "" {
+		args = append(args, "-c", r.BootstrapConfigPath)
+	}
+
+	args = append(args, r.Args...)
+
 	r.cmd = exec.CommandContext(ctx, r.envoyPath(), args...)
 	r.cmd.Stdout = os.Stdout
 	r.cmd.Stderr = os.Stderr
@@ -77,6 +91,7 @@ func (r *Runtime) run(ctx context.Context) error {
 		return fmt.Errorf("failed to start envoy: %w", err)
 	}
 
+	// Restart envoy if it exits.
 	if err := r.cmd.Wait(); err != nil {
 		return fmt.Errorf("envoy exited with error: %w", err)
 	}

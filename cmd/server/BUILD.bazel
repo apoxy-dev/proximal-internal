@@ -18,6 +18,7 @@ go_library(
         "//api/endpoint/v1:endpoint",
         "//api/logs/v1:logs",
         "//api/middleware/v1:middleware",
+        "//core/envoy",
         "//core/log",
         "//core/server",
         "//server/api",
