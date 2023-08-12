@@ -17,11 +17,14 @@ import (
 	listenerv3 "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
 	envoy_config_route_v3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	accessloggrpcv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/access_loggers/grpc/v3"
+	dfpclustersv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/clusters/dynamic_forward_proxy/v3"
+	dfpcommonv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/common/dynamic_forward_proxy/v3"
 	tapv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/common/tap/v3"
 	routerv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/router/v3"
 	httptapv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/tap/v3"
 	httpwasmv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/wasm/v3"
 	httpproxyv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
+	getaddrinfov3 "github.com/envoyproxy/go-control-plane/envoy/extensions/network/dns_resolver/getaddrinfo/v3"
 	tlsv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
 	wasmv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/wasm/v3"
 	clusterservicev3 "github.com/envoyproxy/go-control-plane/envoy/service/cluster/v3"
@@ -51,10 +54,13 @@ import (
 
 const (
 	defaultUpstreamCluster = "default_upstream"
-	xdsClusterName         = "xds_cluster"
-	alsClusterName         = "als_cluster"
-
+	dynamicUpstreamCluster = "dynamic_upstream"
 	controlUpstreamCluster = "control_upstream"
+
+	xdsClusterName = "xds_cluster"
+	alsClusterName = "als_cluster"
+
+	xApoxyMagicHeader = "x-apoxy-magic"
 )
 
 // SnapshotManager is responsible for managing the Envoy snapshot cache.
@@ -118,6 +124,51 @@ func dnsLookupFamilyFromProto(f endpointv1.Endpoint_DNSLookupFamily) clusterv3.C
 func (s *SnapshotManager) clusterResources(es []*endpointv1.Endpoint) ([]types.Resource, error) {
 	var clusters []types.Resource
 	var defaultUpstream string
+
+	tlspb, _ := anypb.New(&tlsv3.UpstreamTlsContext{
+		CommonTlsContext: &tlsv3.CommonTlsContext{
+			ValidationContextType: &tlsv3.CommonTlsContext_ValidationContext{
+				ValidationContext: &tlsv3.CertificateValidationContext{
+					TrustedCa: &core.DataSource{
+						Specifier: &core.DataSource_Filename{
+							Filename: "/etc/ssl/certs/ca-certificates.crt",
+						},
+					},
+				},
+			},
+		},
+	})
+	getAddrDNS, _ := anypb.New(&getaddrinfov3.GetAddrInfoDnsResolverConfig{})
+	dfpcls, _ := anypb.New(&dfpclustersv3.ClusterConfig{
+		ClusterImplementationSpecifier: &dfpclustersv3.ClusterConfig_DnsCacheConfig{
+			DnsCacheConfig: &dfpcommonv3.DnsCacheConfig{
+				Name:            "dynamic_forward_proxy_cache_config",
+				DnsLookupFamily: clusterv3.Cluster_V4_PREFERRED,
+				TypedDnsResolverConfig: &core.TypedExtensionConfig{
+					Name:        "envoy.network.dns_resolver.getaddrinfo",
+					TypedConfig: getAddrDNS,
+				},
+			},
+		},
+	})
+	clusters = append(clusters, &clusterv3.Cluster{
+		Name:           dynamicUpstreamCluster,
+		ConnectTimeout: durationpb.New(5 * time.Second),
+		LbPolicy:       clusterv3.Cluster_CLUSTER_PROVIDED,
+		TransportSocket: &core.TransportSocket{
+			Name: "envoy.transport_sockets.tls",
+			ConfigType: &core.TransportSocket_TypedConfig{
+				TypedConfig: tlspb,
+			},
+		},
+		ClusterDiscoveryType: &clusterv3.Cluster_ClusterType{
+			ClusterType: &clusterv3.Cluster_CustomClusterType{
+				Name:        "envoy.clusters.dynamic_forward_proxy",
+				TypedConfig: dfpcls,
+			},
+		},
+	})
+
 	for _, e := range es {
 		log.Debugf("adding cluster: %v", e)
 
@@ -358,25 +409,47 @@ func (s *SnapshotManager) httpConnectionManager(ctx context.Context, mds []*midd
 				VirtualHosts: []*envoy_config_route_v3.VirtualHost{{
 					Name:    defaultUpstreamCluster,
 					Domains: []string{"*"},
-					Routes: []*envoy_config_route_v3.Route{{
-						Match: &envoy_config_route_v3.RouteMatch{
-							PathSpecifier: &envoy_config_route_v3.RouteMatch_Prefix{
-								Prefix: "/",
-							},
-						},
-						Action: &envoy_config_route_v3.Route_Route{
-							Route: &envoy_config_route_v3.RouteAction{
-								ClusterSpecifier: &envoy_config_route_v3.RouteAction_Cluster{
-									Cluster: defaultUpstreamCluster,
+					Routes: []*envoy_config_route_v3.Route{
+						{
+							Match: &envoy_config_route_v3.RouteMatch{
+								PathSpecifier: &envoy_config_route_v3.RouteMatch_Prefix{
+									Prefix: "/",
 								},
-								HostRewriteSpecifier: &envoy_config_route_v3.RouteAction_AutoHostRewrite{
-									AutoHostRewrite: &wrapperspb.BoolValue{
-										Value: true,
+								Headers: []*envoy_config_route_v3.HeaderMatcher{{
+									Name: xApoxyMagicHeader,
+									HeaderMatchSpecifier: &envoy_config_route_v3.HeaderMatcher_PresentMatch{
+										PresentMatch: true,
+									},
+								}},
+							},
+							Action: &envoy_config_route_v3.Route_Route{
+								Route: &envoy_config_route_v3.RouteAction{
+									ClusterSpecifier: &envoy_config_route_v3.RouteAction_Cluster{
+										Cluster: dynamicUpstreamCluster,
 									},
 								},
 							},
 						},
-					}},
+						{
+							Match: &envoy_config_route_v3.RouteMatch{
+								PathSpecifier: &envoy_config_route_v3.RouteMatch_Prefix{
+									Prefix: "/",
+								},
+							},
+							Action: &envoy_config_route_v3.Route_Route{
+								Route: &envoy_config_route_v3.RouteAction{
+									ClusterSpecifier: &envoy_config_route_v3.RouteAction_Cluster{
+										Cluster: defaultUpstreamCluster,
+									},
+									HostRewriteSpecifier: &envoy_config_route_v3.RouteAction_AutoHostRewrite{
+										AutoHostRewrite: &wrapperspb.BoolValue{
+											Value: true,
+										},
+									},
+								},
+							},
+						},
+					},
 				}},
 			},
 		},
