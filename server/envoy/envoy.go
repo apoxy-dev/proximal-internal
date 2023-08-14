@@ -26,6 +26,8 @@ import (
 	httpproxyv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	tcpproxyv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/tcp_proxy/v3"
 	getaddrinfov3 "github.com/envoyproxy/go-control-plane/envoy/extensions/network/dns_resolver/getaddrinfo/v3"
+	intupstreamv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/internal_upstream/v3"
+	rawbufferv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/raw_buffer/v3"
 	tlsv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
 	wasmv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/wasm/v3"
 	clusterservicev3 "github.com/envoyproxy/go-control-plane/envoy/service/cluster/v3"
@@ -33,6 +35,7 @@ import (
 	endpointservicev3 "github.com/envoyproxy/go-control-plane/envoy/service/endpoint/v3"
 	listenerservicev3 "github.com/envoyproxy/go-control-plane/envoy/service/listener/v3"
 	routeservicev3 "github.com/envoyproxy/go-control-plane/envoy/service/route/v3"
+	metadatav3 "github.com/envoyproxy/go-control-plane/envoy/type/metadata/v3"
 	"github.com/envoyproxy/go-control-plane/pkg/cache/types"
 	"github.com/envoyproxy/go-control-plane/pkg/cache/v3"
 	"github.com/envoyproxy/go-control-plane/pkg/resource/v3"
@@ -54,6 +57,8 @@ import (
 )
 
 const (
+	wgEncapListener = "wg_encap"
+
 	defaultUpstreamCluster = "default_upstream"
 	dynamicUpstreamCluster = "dynamic_upstream"
 	controlUpstreamCluster = "control_upstream"
@@ -63,6 +68,8 @@ const (
 	alsClusterName = "als_cluster"
 
 	xApoxyMagicHeader = "x-apoxy-magic"
+
+	tunnelMetadataKey = "tunnel"
 )
 
 // SnapshotManager is responsible for managing the Envoy snapshot cache.
@@ -209,26 +216,39 @@ func (s *SnapshotManager) clusterResources(nodeID string, es []*endpointv1.Endpo
 			DnsLookupFamily: dnsLookupFamilyFromProto(e.DnsLookupFamily),
 		}
 		if e.UseTls {
-			for _, a := range e.Addresses {
-				tlspb, _ := anypb.New(&tlsv3.UpstreamTlsContext{})
-				cl.TransportSocketMatches = append(cl.TransportSocketMatches, &clusterv3.Cluster_TransportSocketMatch{
-					Name: a.Host,
-					Match: &structpb.Struct{
-						Fields: map[string]*structpb.Value{
-							"serverName": {
-								Kind: &structpb.Value_StringValue{
-									StringValue: a.Host,
-								},
+			tlspb, _ := anypb.New(&tlsv3.UpstreamTlsContext{})
+			cl.TransportSocket = &core.TransportSocket{
+				Name: "envoy.transport_sockets.tls",
+				ConfigType: &core.TransportSocket_TypedConfig{
+					TypedConfig: tlspb,
+				},
+			}
+		} else if e.IsPrivate {
+			rawBuffer, _ := anypb.New(&rawbufferv3.RawBuffer{})
+			intUpstream, _ := anypb.New(&intupstreamv3.InternalUpstreamTransport{
+				PassthroughMetadata: []*intupstreamv3.InternalUpstreamTransport_MetadataValueSource{
+					{
+						Kind: &metadatav3.MetadataKind{
+							Kind: &metadatav3.MetadataKind_Host_{
+								Host: &metadatav3.MetadataKind_Host{},
 							},
 						},
+						Name: tunnelMetadataKey,
 					},
-					TransportSocket: &core.TransportSocket{
-						Name: "envoy.transport_sockets.tls",
-						ConfigType: &core.TransportSocket_TypedConfig{
-							TypedConfig: tlspb,
-						},
+				},
+				TransportSocket: &core.TransportSocket{
+					Name: "envoy.transport_sockets.raw_buffer",
+					ConfigType: &core.TransportSocket_TypedConfig{
+						TypedConfig: rawBuffer,
 					},
-				})
+				},
+			})
+
+			cl.TransportSocket = &core.TransportSocket{
+				Name: "envoy.transport_sockets.internal_upstream",
+				ConfigType: &core.TransportSocket_TypedConfig{
+					TypedConfig: intUpstream,
+				},
 			}
 		}
 
@@ -237,7 +257,10 @@ func (s *SnapshotManager) clusterResources(nodeID string, es []*endpointv1.Endpo
 			continue
 		}
 
-		if e.Status.IsDomain {
+		// For private endpoints, still set the cluster discovery type to STATIC
+		// so that upstream is considered healthy.
+		// DNS resolution will be done by the WireGuard proxy.
+		if e.Status.IsDomain && !e.IsPrivate {
 			cl.ClusterDiscoveryType = &clusterv3.Cluster_Type{
 				Type: clusterv3.Cluster_STRICT_DNS,
 			}
@@ -254,34 +277,55 @@ func (s *SnapshotManager) clusterResources(nodeID string, es []*endpointv1.Endpo
 			}},
 		}
 		for i, addr := range e.Addresses {
-			cl.LoadAssignment.Endpoints[0].LbEndpoints[i] = &endpointv3.LbEndpoint{
-				Metadata: &core.Metadata{
-					FilterMetadata: map[string]*structpb.Struct{
-						"envoy.transport_socket_match": {
-							Fields: map[string]*structpb.Value{
-								"serverName": {
-									Kind: &structpb.Value_StringValue{
-										StringValue: addr.Host,
+			// For private endpoints, we need to add the tunnel metadata to the endpoint
+			// and send it to internal listener that will tunnel it through the WireGuard
+			// proxy.
+			if e.IsPrivate {
+				cl.LoadAssignment.Endpoints[0].LbEndpoints[i] = &endpointv3.LbEndpoint{
+					Metadata: &core.Metadata{
+						FilterMetadata: map[string]*structpb.Struct{
+							tunnelMetadataKey: &structpb.Struct{
+								Fields: map[string]*structpb.Value{
+									"address": {
+										Kind: &structpb.Value_StringValue{
+											StringValue: fmt.Sprintf("%s:%d", addr.Host, addr.Port),
+										},
 									},
 								},
 							},
 						},
 					},
-				},
-				HostIdentifier: &endpointv3.LbEndpoint_Endpoint{
-					Endpoint: &endpointv3.Endpoint{
-						Address: &core.Address{
-							Address: &core.Address_SocketAddress{
-								SocketAddress: &core.SocketAddress{
-									Address: addr.Host,
-									PortSpecifier: &core.SocketAddress_PortValue{
-										PortValue: uint32(addr.Port),
+					HostIdentifier: &endpointv3.LbEndpoint_Endpoint{
+						Endpoint: &endpointv3.Endpoint{
+							Address: &core.Address{
+								Address: &core.Address_EnvoyInternalAddress{
+									EnvoyInternalAddress: &core.EnvoyInternalAddress{
+										AddressNameSpecifier: &core.EnvoyInternalAddress_ServerListenerName{
+											ServerListenerName: wgEncapListener,
+										},
 									},
 								},
 							},
 						},
 					},
-				},
+				}
+			} else {
+				cl.LoadAssignment.Endpoints[0].LbEndpoints[i] = &endpointv3.LbEndpoint{
+					HostIdentifier: &endpointv3.LbEndpoint_Endpoint{
+						Endpoint: &endpointv3.Endpoint{
+							Address: &core.Address{
+								Address: &core.Address_SocketAddress{
+									SocketAddress: &core.SocketAddress{
+										Address: addr.Host,
+										PortSpecifier: &core.SocketAddress_PortValue{
+											PortValue: uint32(addr.Port),
+										},
+									},
+								},
+							},
+						},
+					},
+				}
 			}
 		}
 
@@ -299,7 +343,7 @@ func (s *SnapshotManager) clusterResources(nodeID string, es []*endpointv1.Endpo
 					ClusterName: defaultUpstreamCluster,
 					Endpoints:   cl.LoadAssignment.Endpoints,
 				},
-				TransportSocketMatches: cl.TransportSocketMatches,
+				TransportSocket: cl.TransportSocket,
 			}
 			clusters = append(clusters, def)
 		}
@@ -546,7 +590,7 @@ func (s *SnapshotManager) listenerResources(ctx context.Context, nodeID string, 
 	}
 
 	intLst := &listenerv3.Listener{
-		Name: "wg_encap",
+		Name: wgEncapListener,
 		ListenerSpecifier: &listenerv3.Listener_InternalListener{
 			InternalListener: &listenerv3.Listener_InternalListenerConfig{},
 		},

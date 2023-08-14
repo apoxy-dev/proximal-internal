@@ -3,6 +3,7 @@ CREATE TABLE endpoints (
   is_domain      BOOLEAN NOT NULL,
   use_tls        BOOLEAN DEFAULT FALSE,
   is_magic       BOOLEAN DEFAULT FALSE,
+  is_private     BOOLEAN DEFAULT FALSE,
   lookup_family  TEXT NOT NULL CHECK (lookup_family IN ('V4_ONLY', 'V4_FIRST', 'V6_ONLY', 'V6_FIRST')),
   created_at     DATETIME DEFAULT(STRFTIME('%Y-%m-%d %H:%M:%f', 'NOW')),
   updated_at     DATETIME DEFAULT(STRFTIME('%Y-%m-%d %H:%M:%f', 'NOW'))

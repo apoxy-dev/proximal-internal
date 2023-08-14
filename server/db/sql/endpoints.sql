@@ -4,8 +4,10 @@ INSERT INTO endpoints (
   is_domain,
   use_tls,
   lookup_family,
-  is_magic
+  is_magic,
+  is_private
 ) VALUES (
+  ?,
   ?,
   ?,
   ?,

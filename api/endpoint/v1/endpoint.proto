@@ -24,6 +24,10 @@ message EndpointStatus {
 
   // The details of the endpoint status.
   string details = 2;
+
+  // Auth key that can be used to connect private endpoints.
+  // Never set if the endpoint is not private.
+  string auth_key = 3;
 }
 
 message Endpoint {
@@ -54,6 +58,8 @@ message Endpoint {
   Healthcheck healthcheck = 7;
 
   bool is_magic = 10;
+
+  bool is_private = 11;
 
   google.protobuf.Timestamp created_at = 8;
 

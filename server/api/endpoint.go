@@ -140,6 +140,7 @@ func endpointFromRow(row sqlc.Endpoint, defaultUpstream bool, addrs []*endpointv
 		UseTls:          row.UseTls.Bool,
 		DnsLookupFamily: endpointv1.Endpoint_DNSLookupFamily(endpointv1.Endpoint_DNSLookupFamily_value[row.LookupFamily]),
 		IsMagic:         row.IsMagic.Bool,
+		IsPrivate:       row.IsPrivate.Bool,
 		CreatedAt:       timestamppb.New(row.CreatedAt.Time),
 		UpdatedAt:       timestamppb.New(row.UpdatedAt.Time),
 	}
@@ -193,6 +194,7 @@ func (s *EndpointService) CreateEndpoint(
 		UseTls:       sql.NullBool{Bool: req.Endpoint.GetUseTls(), Valid: true},
 		LookupFamily: dnsLookupFamilyToSQL(req.Endpoint.GetDnsLookupFamily()),
 		IsMagic:      sql.NullBool{Bool: req.Endpoint.GetIsMagic(), Valid: true},
+		IsPrivate:    sql.NullBool{Bool: req.Endpoint.GetIsPrivate(), Valid: true},
 	})
 	if err != nil {
 		log.Errorf("failed to create endpoint: %v", err)
@@ -327,7 +329,11 @@ func (s *EndpointService) UpdateEndpoint(
 		return nil, status.Error(codes.Internal, "failed to update endpoint")
 	}
 
-	// delete addresses that are not in the request
+	if e.IsPrivate.Bool != req.Endpoint.GetIsPrivate() {
+		return nil, status.Error(codes.InvalidArgument, "cannot change private endpoint to public or vice versa")
+	}
+
+	// delete addresses that are not in the request.
 	for _, addr := range addrs {
 		found := false
 		for _, a := range req.Endpoint.GetAddresses() {
