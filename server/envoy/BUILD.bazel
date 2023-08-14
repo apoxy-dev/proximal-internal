@@ -23,6 +23,7 @@ go_library(
         "@com_github_envoyproxy_go_control_plane//envoy/extensions/filters/http/tap/v3:tap",
         "@com_github_envoyproxy_go_control_plane//envoy/extensions/filters/http/wasm/v3:wasm",
         "@com_github_envoyproxy_go_control_plane//envoy/extensions/filters/network/http_connection_manager/v3:http_connection_manager",
+        "@com_github_envoyproxy_go_control_plane//envoy/extensions/filters/network/tcp_proxy/v3:tcp_proxy",
         "@com_github_envoyproxy_go_control_plane//envoy/extensions/network/dns_resolver/getaddrinfo/v3:getaddrinfo",
         "@com_github_envoyproxy_go_control_plane//envoy/extensions/transport_sockets/tls/v3:tls",
         "@com_github_envoyproxy_go_control_plane//envoy/extensions/wasm/v3:wasm",

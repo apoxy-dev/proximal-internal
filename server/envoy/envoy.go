@@ -24,6 +24,7 @@ import (
 	httptapv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/tap/v3"
 	httpwasmv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/wasm/v3"
 	httpproxyv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
+	tcpproxyv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/tcp_proxy/v3"
 	getaddrinfov3 "github.com/envoyproxy/go-control-plane/envoy/extensions/network/dns_resolver/getaddrinfo/v3"
 	tlsv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
 	wasmv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/wasm/v3"
@@ -56,6 +57,7 @@ const (
 	defaultUpstreamCluster = "default_upstream"
 	dynamicUpstreamCluster = "dynamic_upstream"
 	controlUpstreamCluster = "control_upstream"
+	wgProxyCluster         = "wg_proxy"
 
 	xdsClusterName = "xds_cluster"
 	alsClusterName = "als_cluster"
@@ -121,7 +123,7 @@ func dnsLookupFamilyFromProto(f endpointv1.Endpoint_DNSLookupFamily) clusterv3.C
 	}
 }
 
-func (s *SnapshotManager) clusterResources(es []*endpointv1.Endpoint) ([]types.Resource, error) {
+func (s *SnapshotManager) clusterResources(nodeID string, es []*endpointv1.Endpoint) ([]types.Resource, error) {
 	var clusters []types.Resource
 	var defaultUpstream string
 
@@ -165,6 +167,35 @@ func (s *SnapshotManager) clusterResources(es []*endpointv1.Endpoint) ([]types.R
 			ClusterType: &clusterv3.Cluster_CustomClusterType{
 				Name:        "envoy.clusters.dynamic_forward_proxy",
 				TypedConfig: dfpcls,
+			},
+		},
+	})
+
+	wgProxyHost := &endpointv3.Endpoint{
+		Address: &core.Address{
+			Address: &core.Address_Pipe{
+				Pipe: &core.Pipe{
+					Path: fmt.Sprintf("/tmp/wg-%s.sock", nodeID),
+				},
+			},
+		},
+	}
+	clusters = append(clusters, &clusterv3.Cluster{
+		Name:           wgProxyCluster,
+		ConnectTimeout: durationpb.New(5 * time.Second),
+		LbPolicy:       clusterv3.Cluster_ROUND_ROBIN,
+		LoadAssignment: &endpointv3.ClusterLoadAssignment{
+			ClusterName: wgProxyCluster,
+			Endpoints: []*endpointv3.LocalityLbEndpoints{
+				{
+					LbEndpoints: []*endpointv3.LbEndpoint{
+						{
+							HostIdentifier: &endpointv3.LbEndpoint_Endpoint{
+								Endpoint: wgProxyHost,
+							},
+						},
+					},
+				},
 			},
 		},
 	})
@@ -501,7 +532,35 @@ func (s *SnapshotManager) listenerResources(ctx context.Context, nodeID string, 
 		}},
 	}}
 
-	return []types.Resource{lst}, nil
+	tcpProxy, err := anypb.New(&tcpproxyv3.TcpProxy{
+		StatPrefix: "ingress_tcp",
+		ClusterSpecifier: &tcpproxyv3.TcpProxy_Cluster{
+			Cluster: wgProxyCluster,
+		},
+		TunnelingConfig: &tcpproxyv3.TcpProxy_TunnelingConfig{
+			Hostname: "%DYNAMIC_METADATA(tunnel:address)%",
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate tcp proxy: %v", err)
+	}
+
+	intLst := &listenerv3.Listener{
+		Name: "wg_encap",
+		ListenerSpecifier: &listenerv3.Listener_InternalListener{
+			InternalListener: &listenerv3.Listener_InternalListenerConfig{},
+		},
+		FilterChains: []*listenerv3.FilterChain{{
+			Filters: []*listenerv3.Filter{{
+				Name: "tcp_proxy",
+				ConfigType: &listenerv3.Filter_TypedConfig{
+					TypedConfig: tcpProxy,
+				},
+			}},
+		}},
+	}
+
+	return []types.Resource{lst, intLst}, nil
 }
 
 func (s *SnapshotManager) sync(ctx context.Context) error {
@@ -541,13 +600,13 @@ func (s *SnapshotManager) sync(ctx context.Context) error {
 		UseTls:          true,
 	})
 
-	cls, err := s.clusterResources(ersp.GetEndpoints())
-	if err != nil {
-		return err
-	}
-
 	nodeIDs := s.cache.GetStatusKeys()
 	for _, nodeID := range nodeIDs {
+		cls, err := s.clusterResources(nodeID, ersp.GetEndpoints())
+		if err != nil {
+			return err
+		}
+
 		ls, err := s.listenerResources(ctx, nodeID, mrsp.GetMiddlewares())
 		if err != nil {
 			return err

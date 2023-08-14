@@ -1,3 +1,7 @@
+bootstrap_extensions:
+- name: envoy.bootstrap.internal_listener
+  typed_config:
+    "@type": type.googleapis.com/envoy.extensions.bootstrap.internal_listener.v3.InternalListener
 admin:
   access_log_path: /dev/stdout
   address:
