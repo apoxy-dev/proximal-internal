@@ -130,7 +130,7 @@ func dnsLookupFamilyFromProto(f endpointv1.Endpoint_DNSLookupFamily) clusterv3.C
 	}
 }
 
-func (s *SnapshotManager) clusterResources(nodeID string, es []*endpointv1.Endpoint) ([]types.Resource, error) {
+func (s *SnapshotManager) clusterResources(clusterID string, es []*endpointv1.Endpoint) ([]types.Resource, error) {
 	var clusters []types.Resource
 	var defaultUpstream string
 
@@ -182,7 +182,7 @@ func (s *SnapshotManager) clusterResources(nodeID string, es []*endpointv1.Endpo
 		Address: &core.Address{
 			Address: &core.Address_Pipe{
 				Pipe: &core.Pipe{
-					Path: fmt.Sprintf("/tmp/wg-%s.sock", nodeID),
+					Path: fmt.Sprintf("/tmp/wg-%s.sock", clusterID),
 				},
 			},
 		},
@@ -646,7 +646,13 @@ func (s *SnapshotManager) sync(ctx context.Context) error {
 
 	nodeIDs := s.cache.GetStatusKeys()
 	for _, nodeID := range nodeIDs {
-		cls, err := s.clusterResources(nodeID, ersp.GetEndpoints())
+		info := s.cache.GetStatusInfo(nodeID)
+		nodepb := info.GetNode()
+		if nodepb == nil {
+			log.Warnf("no node found for nodeID:%v", nodeID)
+		}
+
+		cls, err := s.clusterResources(nodepb.Cluster, ersp.GetEndpoints())
 		if err != nil {
 			return err
 		}
