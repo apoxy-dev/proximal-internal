@@ -10,6 +10,7 @@ import (
 	"github.com/gogo/status"
 	tclient "go.temporal.io/sdk/client"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -129,7 +130,19 @@ func (s *EndpointService) validateAddrs(isMagic bool, addrs []*endpointv1.Addres
 	return isDomain, nil
 }
 
-func endpointFromRow(row sqlc.Endpoint, defaultUpstream bool, addrs []*endpointv1.Address) *endpointv1.Endpoint {
+func endpointFromRow(row sqlc.Endpoint, defaultUpstream bool, addrs []*endpointv1.Address) (*endpointv1.Endpoint, error) {
+	if len(addrs) == 0 {
+		return nil, errors.New("no addresses")
+	}
+
+	var proxyFilter *endpointv1.ProxyFilter
+	if row.ProxyFilter != nil {
+		proxyFilter = &endpointv1.ProxyFilter{}
+		if err := protojson.Unmarshal([]byte(row.ProxyFilter), proxyFilter); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal proxy filter: %v", err)
+		}
+	}
+
 	return &endpointv1.Endpoint{
 		Cluster:         row.Cluster,
 		DefaultUpstream: defaultUpstream,
@@ -141,9 +154,10 @@ func endpointFromRow(row sqlc.Endpoint, defaultUpstream bool, addrs []*endpointv
 		DnsLookupFamily: endpointv1.Endpoint_DNSLookupFamily(endpointv1.Endpoint_DNSLookupFamily_value[row.LookupFamily]),
 		IsMagic:         row.IsMagic.Bool,
 		IsPrivate:       row.IsPrivate.Bool,
+		ProxyFilter:     proxyFilter,
 		CreatedAt:       timestamppb.New(row.CreatedAt.Time),
 		UpdatedAt:       timestamppb.New(row.UpdatedAt.Time),
-	}
+	}, nil
 }
 
 func dnsLookupFamilyToSQL(family endpointv1.Endpoint_DNSLookupFamily) string {
@@ -188,6 +202,15 @@ func (s *EndpointService) CreateEndpoint(
 	defer tx.Rollback()
 	qtx := s.db.Queries().WithTx(tx)
 
+	var proxyFilter []byte
+	if req.Endpoint.ProxyFilter != nil {
+		proxyFilter, err = protojson.Marshal(req.Endpoint.ProxyFilter)
+		if err != nil {
+			log.Errorf("failed to marshal proxy filter: %v", err)
+			return nil, status.Error(codes.Internal, "failed to create endpoint")
+		}
+	}
+
 	e, err := qtx.CreateEndpoint(ctx, sqlc.CreateEndpointParams{
 		Cluster:      req.Endpoint.GetCluster(),
 		IsDomain:     isDomain,
@@ -195,6 +218,7 @@ func (s *EndpointService) CreateEndpoint(
 		LookupFamily: dnsLookupFamilyToSQL(req.Endpoint.GetDnsLookupFamily()),
 		IsMagic:      sql.NullBool{Bool: req.Endpoint.GetIsMagic(), Valid: true},
 		IsPrivate:    sql.NullBool{Bool: req.Endpoint.GetIsPrivate(), Valid: true},
+		ProxyFilter:  proxyFilter,
 	})
 	if err != nil {
 		log.Errorf("failed to create endpoint: %v", err)
@@ -247,7 +271,12 @@ func (s *EndpointService) CreateEndpoint(
 		return nil, status.Error(codes.Internal, "failed to create endpoint")
 	}
 
-	return endpointFromRow(e, defaultUpstream, req.Endpoint.Addresses), nil
+	epb, err := endpointFromRow(e, defaultUpstream, req.Endpoint.Addresses)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "failed to create endpoint")
+	}
+
+	return epb, nil
 }
 
 func (s *EndpointService) ListEndpoints(
@@ -294,7 +323,12 @@ func (s *EndpointService) GetEndpoint(ctx context.Context, req *endpointv1.GetEn
 		return nil, status.Error(codes.Internal, "failed to get endpoint")
 	}
 
-	return endpointFromRow(e, e.Cluster == du.Cluster, addrpbs), nil
+	epb, err := endpointFromRow(e, e.Cluster == du.Cluster, addrpbs)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "failed to get endpoint")
+	}
+
+	return epb, nil
 }
 
 func (s *EndpointService) UpdateEndpoint(
@@ -384,17 +418,29 @@ func (s *EndpointService) UpdateEndpoint(
 		}
 	}
 
-	if e.IsDomain != isDomain {
-		if _, err := qtx.UpdateEndpoint(ctx, sqlc.UpdateEndpointParams{
-			Cluster:      e.Cluster,
-			IsDomain:     isDomain,
-			UseTls:       sql.NullBool{Bool: req.Endpoint.GetUseTls(), Valid: true},
-			LookupFamily: dnsLookupFamilyToSQL(req.Endpoint.GetDnsLookupFamily()),
-			IsMagic:      sql.NullBool{Bool: req.Endpoint.GetIsMagic(), Valid: true},
-		}); err != nil {
-			log.Errorf("failed to update endpoint is_domain: %v", err)
-			return nil, status.Error(codes.Internal, "failed to update endpoint")
+	var proxyFilter []byte
+	if req.Endpoint.ProxyFilter != nil {
+		proxyFilter, err = protojson.Marshal(req.Endpoint.ProxyFilter)
+		if err != nil {
+			log.Errorf("failed to marshal proxy filter: %v", err)
+			return nil, status.Error(codes.Internal, "failed to create endpoint")
 		}
+	}
+
+	if e.IsDomain != isDomain {
+		return nil, status.Error(codes.InvalidArgument, "cannot change is_domain")
+	}
+
+	if e, err = qtx.UpdateEndpoint(ctx, sqlc.UpdateEndpointParams{
+		Cluster:      e.Cluster,
+		IsDomain:     isDomain,
+		UseTls:       sql.NullBool{Bool: req.Endpoint.GetUseTls(), Valid: true},
+		LookupFamily: dnsLookupFamilyToSQL(req.Endpoint.GetDnsLookupFamily()),
+		IsMagic:      sql.NullBool{Bool: req.Endpoint.GetIsMagic(), Valid: true},
+		ProxyFilter:  proxyFilter,
+	}); err != nil {
+		log.Errorf("failed to update endpoint is_domain: %v", err)
+		return nil, status.Error(codes.Internal, "failed to update endpoint")
 	}
 
 	if req.Endpoint.GetIsMagic() {
@@ -409,7 +455,13 @@ func (s *EndpointService) UpdateEndpoint(
 		return nil, status.Error(codes.Internal, "failed to update endpoint")
 	}
 
-	return endpointFromRow(e, req.Endpoint.DefaultUpstream, req.Endpoint.Addresses), nil
+	epb, err := endpointFromRow(e, req.Endpoint.DefaultUpstream, req.Endpoint.Addresses)
+	if err != nil {
+		log.Errorf("failed to create endpoint: %v", err)
+		return nil, status.Error(codes.Internal, "failed to update endpoint")
+	}
+
+	return epb, nil
 }
 
 func (s *EndpointService) DeleteEndpoint(ctx context.Context, req *endpointv1.DeleteEndpointRequest) (*emptypb.Empty, error) {
@@ -494,7 +546,12 @@ func (s *EndpointService) loadEndpoints(ctx context.Context) (*endpointv1.ListEn
 
 	var endpoints []*endpointv1.Endpoint
 	for _, e := range eps {
-		endpoints = append(endpoints, endpointFromRow(e, e.Cluster == du.Cluster, addrpbs[e.Cluster]))
+		epb, err := endpointFromRow(e, e.Cluster == du.Cluster, addrpbs[e.Cluster])
+		if err != nil {
+			log.Errorf("failed to create endpoint: %v", err)
+			return nil, err
+		}
+		endpoints = append(endpoints, epb)
 	}
 	return &endpointv1.ListEndpointsResponse{
 		Endpoints: endpoints,

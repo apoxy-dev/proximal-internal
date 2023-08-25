@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	accesslogv3 "github.com/envoyproxy/go-control-plane/envoy/config/accesslog/v3"
@@ -132,7 +133,6 @@ func dnsLookupFamilyFromProto(f endpointv1.Endpoint_DNSLookupFamily) clusterv3.C
 
 func (s *SnapshotManager) clusterResources(clusterID string, es []*endpointv1.Endpoint) ([]types.Resource, error) {
 	var clusters []types.Resource
-	var defaultUpstream string
 
 	tlspb, _ := anypb.New(&tlsv3.UpstreamTlsContext{
 		CommonTlsContext: &tlsv3.CommonTlsContext{
@@ -333,7 +333,6 @@ func (s *SnapshotManager) clusterResources(clusterID string, es []*endpointv1.En
 
 		if e.DefaultUpstream {
 			log.Debugf("adding default upstream: %v", e)
-			defaultUpstream = e.Cluster
 			def := &clusterv3.Cluster{
 				Name:                 defaultUpstreamCluster,
 				ConnectTimeout:       cl.ConnectTimeout,
@@ -347,10 +346,6 @@ func (s *SnapshotManager) clusterResources(clusterID string, es []*endpointv1.En
 			}
 			clusters = append(clusters, def)
 		}
-	}
-
-	if defaultUpstream == "" {
-		return nil, fmt.Errorf("no default upstream found")
 	}
 
 	return clusters, nil
@@ -607,6 +602,34 @@ func (s *SnapshotManager) listenerResources(ctx context.Context, nodeID string, 
 	return []types.Resource{lst, intLst}, nil
 }
 
+func (s *SnapshotManager) filterEndpoints(endpoints []*endpointv1.Endpoint, node *core.Node) ([]*endpointv1.Endpoint, error) {
+	var filtered []*endpointv1.Endpoint
+EndpointLoop:
+	for _, ep := range endpoints {
+		// if no proxy filter is defined, accept all endpoints.
+		if ep.ProxyFilter == nil || ep.ProxyFilter.MatcherList == nil {
+			filtered = append(filtered, ep)
+			continue
+		}
+		// if no metadata is defined but a proxy filter is defined, there is no match.
+		if node.Metadata == nil || node.Metadata.Fields == nil {
+			continue
+		}
+
+		for _, m := range ep.ProxyFilter.MatcherList.Matchers {
+			if !strings.HasPrefix(m.MetadataField, "envoy.") {
+				continue
+			}
+			mf := strings.TrimLeft(m.MetadataField, "envoy.")
+			if v := node.Metadata.Fields[mf]; v != nil && v.GetStringValue() == m.Value {
+				filtered = append(filtered, ep)
+				continue EndpointLoop
+			}
+		}
+	}
+	return filtered, nil
+}
+
 func (s *SnapshotManager) sync(ctx context.Context) error {
 	id := time.Now().Unix()
 
@@ -652,7 +675,14 @@ func (s *SnapshotManager) sync(ctx context.Context) error {
 			log.Warnf("no node found for nodeID:%v", nodeID)
 		}
 
-		cls, err := s.clusterResources(nodepb.Cluster, ersp.GetEndpoints())
+		es, err := s.filterEndpoints(ersp.GetEndpoints(), nodepb)
+		if err != nil {
+			return err
+		}
+
+		log.Infof("filtered endpoints id:%d for node:%v with %d endpoints", id, nodeID, len(es))
+
+		cls, err := s.clusterResources(nodepb.Cluster, es)
 		if err != nil {
 			return err
 		}
@@ -662,7 +692,7 @@ func (s *SnapshotManager) sync(ctx context.Context) error {
 			return err
 		}
 
-		log.Infof("syncing snapshot id:%d for node:%v with %d endpoints", id, nodeID, len(ersp.GetEndpoints()))
+		log.Infof("syncing snapshot id:%d for node:%v with %d endpoints", id, nodeID, len(es))
 
 		snapshot, err := cache.NewSnapshot(
 			fmt.Sprintf("%d.0", id),

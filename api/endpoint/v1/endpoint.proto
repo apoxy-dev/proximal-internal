@@ -30,6 +30,26 @@ message EndpointStatus {
   string auth_key = 3;
 }
 
+message Matcher {
+  // The metadata field to match on.
+  // e.g for Envoy "cluster" metadata, this would be "envoy.node.cluster".
+  string metadata_field = 1;
+  // The value to match against the metadata field.
+  string value = 2;
+}
+
+message MatcherList {
+  // The list of matchers to match against. Any matcher in the list can match
+  // for the filter to be considered a match.
+  repeated Matcher matchers = 1;
+}
+
+message ProxyFilter {
+  // The list of matchers to match against. Any matcher in the list can match
+  // for the filter to be considered a match.
+  MatcherList matcher_list = 1;
+}
+
 message Endpoint {
   string cluster = 1;
 
@@ -60,6 +80,10 @@ message Endpoint {
   bool is_magic = 10;
 
   bool is_private = 11;
+
+  // Filters proxies (Envoys) based on Node's metadata fields.
+  // If empty, all proxies are matched.
+  ProxyFilter proxy_filter = 12;
 
   google.protobuf.Timestamp created_at = 8;
 
