@@ -29,7 +29,6 @@ CREATE TABLE endpoints (
   use_tls        BOOLEAN DEFAULT FALSE,
   is_magic       BOOLEAN DEFAULT FALSE,
   is_private     BOOLEAN DEFAULT FALSE,
-  proxy_filter   BLOB, 
   lookup_family  TEXT NOT NULL CHECK (lookup_family IN ('V4_ONLY', 'V4_FIRST', 'V6_ONLY', 'V6_FIRST')),
   created_at     DATETIME DEFAULT(STRFTIME('%Y-%m-%d %H:%M:%f', 'NOW')),
   updated_at     DATETIME DEFAULT(STRFTIME('%Y-%m-%d %H:%M:%f', 'NOW'))
@@ -49,6 +48,22 @@ CREATE TABLE endpoint_addresses (
   updated_at   DATETIME DEFAULT(STRFTIME('%Y-%m-%d %H:%M:%f', 'NOW')),
   PRIMARY KEY (cluster, host, port),
   FOREIGN KEY (cluster) REFERENCES endpoints(cluster)
+);
+
+CREATE TABLE proxies (
+  key               VARCHAR(255) PRIMARY KEY,
+  default_upstream  VARCHAR(255),
+  created_at        DATETIME DEFAULT(STRFTIME('%Y-%m-%d %H:%M:%f', 'NOW')),
+  updated_at        DATETIME DEFAULT(STRFTIME('%Y-%m-%d %H:%M:%f', 'NOW')),
+  FOREIGN KEY (default_upstream) REFERENCES endpoints(cluster)
+);
+
+CREATE TABLE proxies_endpoints (
+  proxy_key         VARCHAR(255) NOT NULL,
+  endpoint_cluster  VARCHAR(255) NOT NULL,
+  PRIMARY KEY (proxy_key, endpoint_cluster),
+  FOREIGN KEY (proxy_key) REFERENCES proxies(key),
+  FOREIGN KEY (endpoint_cluster) REFERENCES endpoints(cluster)
 );
 
 CREATE TABLE access_logs (

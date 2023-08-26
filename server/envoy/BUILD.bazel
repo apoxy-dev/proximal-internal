@@ -8,6 +8,7 @@ go_library(
     deps = [
         "//api/endpoint/v1:endpoint",
         "//api/middleware/v1:middleware",
+        "//api/proxy/v1:proxy",
         "//core/log",
         "@com_github_envoyproxy_go_control_plane//envoy/config/accesslog/v3:accesslog",
         "@com_github_envoyproxy_go_control_plane//envoy/config/cluster/v3:cluster",

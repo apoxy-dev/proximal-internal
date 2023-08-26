@@ -10,7 +10,6 @@ import (
 	"github.com/gogo/status"
 	tclient "go.temporal.io/sdk/client"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -135,14 +134,6 @@ func endpointFromRow(row sqlc.Endpoint, defaultUpstream bool, addrs []*endpointv
 		return nil, errors.New("no addresses")
 	}
 
-	var proxyFilter *endpointv1.ProxyFilter
-	if row.ProxyFilter != nil {
-		proxyFilter = &endpointv1.ProxyFilter{}
-		if err := protojson.Unmarshal([]byte(row.ProxyFilter), proxyFilter); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal proxy filter: %v", err)
-		}
-	}
-
 	return &endpointv1.Endpoint{
 		Cluster:         row.Cluster,
 		DefaultUpstream: defaultUpstream,
@@ -154,7 +145,6 @@ func endpointFromRow(row sqlc.Endpoint, defaultUpstream bool, addrs []*endpointv
 		DnsLookupFamily: endpointv1.Endpoint_DNSLookupFamily(endpointv1.Endpoint_DNSLookupFamily_value[row.LookupFamily]),
 		IsMagic:         row.IsMagic.Bool,
 		IsPrivate:       row.IsPrivate.Bool,
-		ProxyFilter:     proxyFilter,
 		CreatedAt:       timestamppb.New(row.CreatedAt.Time),
 		UpdatedAt:       timestamppb.New(row.UpdatedAt.Time),
 	}, nil
@@ -202,15 +192,6 @@ func (s *EndpointService) CreateEndpoint(
 	defer tx.Rollback()
 	qtx := s.db.Queries().WithTx(tx)
 
-	var proxyFilter []byte
-	if req.Endpoint.ProxyFilter != nil {
-		proxyFilter, err = protojson.Marshal(req.Endpoint.ProxyFilter)
-		if err != nil {
-			log.Errorf("failed to marshal proxy filter: %v", err)
-			return nil, status.Error(codes.Internal, "failed to create endpoint")
-		}
-	}
-
 	e, err := qtx.CreateEndpoint(ctx, sqlc.CreateEndpointParams{
 		Cluster:      req.Endpoint.GetCluster(),
 		IsDomain:     isDomain,
@@ -218,7 +199,6 @@ func (s *EndpointService) CreateEndpoint(
 		LookupFamily: dnsLookupFamilyToSQL(req.Endpoint.GetDnsLookupFamily()),
 		IsMagic:      sql.NullBool{Bool: req.Endpoint.GetIsMagic(), Valid: true},
 		IsPrivate:    sql.NullBool{Bool: req.Endpoint.GetIsPrivate(), Valid: true},
-		ProxyFilter:  proxyFilter,
 	})
 	if err != nil {
 		log.Errorf("failed to create endpoint: %v", err)
@@ -418,15 +398,6 @@ func (s *EndpointService) UpdateEndpoint(
 		}
 	}
 
-	var proxyFilter []byte
-	if req.Endpoint.ProxyFilter != nil {
-		proxyFilter, err = protojson.Marshal(req.Endpoint.ProxyFilter)
-		if err != nil {
-			log.Errorf("failed to marshal proxy filter: %v", err)
-			return nil, status.Error(codes.Internal, "failed to create endpoint")
-		}
-	}
-
 	if e.IsDomain != isDomain {
 		return nil, status.Error(codes.InvalidArgument, "cannot change is_domain")
 	}
@@ -437,7 +408,6 @@ func (s *EndpointService) UpdateEndpoint(
 		UseTls:       sql.NullBool{Bool: req.Endpoint.GetUseTls(), Valid: true},
 		LookupFamily: dnsLookupFamilyToSQL(req.Endpoint.GetDnsLookupFamily()),
 		IsMagic:      sql.NullBool{Bool: req.Endpoint.GetIsMagic(), Valid: true},
-		ProxyFilter:  proxyFilter,
 	}); err != nil {
 		log.Errorf("failed to update endpoint is_domain: %v", err)
 		return nil, status.Error(codes.Internal, "failed to update endpoint")

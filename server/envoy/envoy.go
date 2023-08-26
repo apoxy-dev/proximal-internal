@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	accesslogv3 "github.com/envoyproxy/go-control-plane/envoy/config/accesslog/v3"
@@ -55,6 +54,7 @@ import (
 
 	endpointv1 "github.com/apoxy-dev/proximal/api/endpoint/v1"
 	middlewarev1 "github.com/apoxy-dev/proximal/api/middleware/v1"
+	proxyv1 "github.com/apoxy-dev/proximal/api/proxy/v1"
 )
 
 const (
@@ -81,7 +81,7 @@ type SnapshotManager struct {
 	buildBaseDir string
 
 	mSvc      middlewarev1.MiddlewareServiceClient
-	eSvc      endpointv1.EndpointServiceClient
+	pSvc      proxyv1.ProxyServiceClient
 	xdsServer xds.Server
 	cache     cache.SnapshotCache
 
@@ -94,7 +94,7 @@ type SnapshotManager struct {
 func NewSnapshotManager(
 	ctx context.Context,
 	mSvc middlewarev1.MiddlewareServiceClient,
-	eSvc endpointv1.EndpointServiceClient,
+	pSvc proxyv1.ProxyServiceClient,
 	buildBaseDir string,
 	host string, port int,
 	syncInterval time.Duration,
@@ -106,7 +106,7 @@ func NewSnapshotManager(
 		listenPort:    port,
 		syncInterval:  syncInterval,
 		mSvc:          mSvc,
-		eSvc:          eSvc,
+		pSvc:          pSvc,
 		buildBaseDir:  buildBaseDir,
 		xdsServer:     xds.NewServer(ctx, snapshotCache, nil),
 		cache:         snapshotCache,
@@ -133,6 +133,23 @@ func dnsLookupFamilyFromProto(f endpointv1.Endpoint_DNSLookupFamily) clusterv3.C
 
 func (s *SnapshotManager) clusterResources(clusterID string, es []*endpointv1.Endpoint) ([]types.Resource, error) {
 	var clusters []types.Resource
+
+	// Prepend the control upstream cluster.
+	es = append([]*endpointv1.Endpoint{
+		&endpointv1.Endpoint{
+			Cluster:         controlUpstreamCluster,
+			DefaultUpstream: false,
+			Status: &endpointv1.EndpointStatus{
+				IsDomain: true,
+			},
+			Addresses: []*endpointv1.Address{{
+				Host: s.controlDomain,
+				Port: 443,
+			}},
+			DnsLookupFamily: endpointv1.Endpoint_V4_ONLY,
+			UseTls:          true,
+		},
+	}, es...)
 
 	tlspb, _ := anypb.New(&tlsv3.UpstreamTlsContext{
 		CommonTlsContext: &tlsv3.CommonTlsContext{
@@ -602,34 +619,6 @@ func (s *SnapshotManager) listenerResources(ctx context.Context, nodeID string, 
 	return []types.Resource{lst, intLst}, nil
 }
 
-func (s *SnapshotManager) filterEndpoints(endpoints []*endpointv1.Endpoint, node *core.Node) ([]*endpointv1.Endpoint, error) {
-	var filtered []*endpointv1.Endpoint
-EndpointLoop:
-	for _, ep := range endpoints {
-		// if no proxy filter is defined, accept all endpoints.
-		if ep.ProxyFilter == nil || ep.ProxyFilter.MatcherList == nil {
-			filtered = append(filtered, ep)
-			continue
-		}
-		// if no metadata is defined but a proxy filter is defined, there is no match.
-		if node.Metadata == nil || node.Metadata.Fields == nil {
-			continue
-		}
-
-		for _, m := range ep.ProxyFilter.MatcherList.Matchers {
-			if !strings.HasPrefix(m.MetadataField, "envoy.") {
-				continue
-			}
-			mf := strings.TrimLeft(m.MetadataField, "envoy.")
-			if v := node.Metadata.Fields[mf]; v != nil && v.GetStringValue() == m.Value {
-				filtered = append(filtered, ep)
-				continue EndpointLoop
-			}
-		}
-	}
-	return filtered, nil
-}
-
 func (s *SnapshotManager) sync(ctx context.Context) error {
 	id := time.Now().Unix()
 
@@ -642,31 +631,6 @@ func (s *SnapshotManager) sync(ctx context.Context) error {
 		return fmt.Errorf("failed to list middlewares: %v", err)
 	}
 
-	ersp, err := s.eSvc.InternalListEndpoints(ctx, &emptypb.Empty{})
-	fmt.Println("ersp", ersp)
-	if err != nil {
-		if status.Code(err) == codes.NotFound {
-			log.Infof("no endpoints found, skipping snapshot (id:%d)", id)
-			return nil
-		}
-		return fmt.Errorf("failed to list endpoints: %v", err)
-	}
-
-	// Append the control upstream cluster.
-	ersp.Endpoints = append(ersp.GetEndpoints(), &endpointv1.Endpoint{
-		Cluster:         controlUpstreamCluster,
-		DefaultUpstream: false,
-		Status: &endpointv1.EndpointStatus{
-			IsDomain: true,
-		},
-		Addresses: []*endpointv1.Address{{
-			Host: s.controlDomain,
-			Port: 443,
-		}},
-		DnsLookupFamily: endpointv1.Endpoint_V4_ONLY,
-		UseTls:          true,
-	})
-
 	nodeIDs := s.cache.GetStatusKeys()
 	for _, nodeID := range nodeIDs {
 		info := s.cache.GetStatusInfo(nodeID)
@@ -675,14 +639,18 @@ func (s *SnapshotManager) sync(ctx context.Context) error {
 			log.Warnf("no node found for nodeID:%v", nodeID)
 		}
 
-		es, err := s.filterEndpoints(ersp.GetEndpoints(), nodepb)
+		ersp, err := s.pSvc.ListProxyEndpoints(ctx, &proxyv1.ListProxyEndpointsRequest{
+			Key: nodeID,
+		})
 		if err != nil {
-			return err
+			if status.Code(err) == codes.NotFound {
+				log.Infof("no endpoints found, skipping snapshot (id:%d)", id)
+				return nil
+			}
+			return fmt.Errorf("failed to list endpoints: %v", err)
 		}
 
-		log.Infof("filtered endpoints id:%d for node:%v with %d endpoints", id, nodeID, len(es))
-
-		cls, err := s.clusterResources(nodepb.Cluster, es)
+		cls, err := s.clusterResources(nodepb.Cluster, ersp.GetEndpoints())
 		if err != nil {
 			return err
 		}
@@ -692,7 +660,7 @@ func (s *SnapshotManager) sync(ctx context.Context) error {
 			return err
 		}
 
-		log.Infof("syncing snapshot id:%d for node:%v with %d endpoints", id, nodeID, len(es))
+		log.Infof("syncing snapshot id:%d for node:%v with %d endpoints", id, nodeID, len(ersp.GetEndpoints()))
 
 		snapshot, err := cache.NewSnapshot(
 			fmt.Sprintf("%d.0", id),
@@ -711,9 +679,9 @@ func (s *SnapshotManager) sync(ctx context.Context) error {
 		if err = s.cache.SetSnapshot(ctx, nodeID, snapshot); err != nil {
 			log.Warnf("error setting snapshot for node %s: %v", nodeID, err)
 		}
-	}
 
-	log.Infof("successfully synced snapshot (id:%d) for %d endpoints", id, len(ersp.GetEndpoints()))
+		log.Infof("successfully synced snapshot (id:%d) for %d endpoints", id, len(ersp.GetEndpoints()))
+	}
 
 	return nil
 }

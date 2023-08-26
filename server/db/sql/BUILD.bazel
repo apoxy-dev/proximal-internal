@@ -9,6 +9,7 @@ sqlc_package(
         "middlewares.sql",
         "logs.sql",
         "endpoints.sql",
+        "proxies.sql",
     ],
     schema = ["schema.sql"],
     visibility = ["//visibility:public"],

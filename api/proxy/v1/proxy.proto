@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package proximal.proxy.v1;
+
+option go_package = "github.com/apoxy-dev/proximal/api/proxy/v1;proxyv1";
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+
+import "api/endpoint/v1/endpoint.proto";
+
+
+message Proxy {
+  string key = 1;
+  string default_endpoint = 2;
+  repeated string endpoints = 3;
+  google.protobuf.Timestamp created_at = 4;
+}
+
+message CreateProxyRequest {
+  string key = 1;
+  string default_endpoint = 2;
+  repeated string endpoints = 3;
+}
+
+message ListProxyEndpointsRequest {
+  string key = 1;
+}
+
+message ListProxyEndpointsResponse {
+  repeated endpoints.v1.Endpoint endpoints = 1;
+}
+
+service ProxyService {
+  rpc CreateProxy(CreateProxyRequest) returns (Proxy) {
+    option (google.api.http) = {
+      post: "/v1/proxy"
+      body: "*"
+    };
+  }
+
+  rpc ListProxyEndpoints(ListProxyEndpointsRequest) returns (ListProxyEndpointsResponse) {
+    option (google.api.http) = {
+      get: "/v1/proxy/{key}/endpoints"
+    };
+  }
+}

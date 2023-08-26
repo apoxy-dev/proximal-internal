@@ -28,6 +28,7 @@ import (
 	endpointv1 "github.com/apoxy-dev/proximal/api/endpoint/v1"
 	logsv1 "github.com/apoxy-dev/proximal/api/logs/v1"
 	middlewarev1 "github.com/apoxy-dev/proximal/api/middleware/v1"
+	proxyv1 "github.com/apoxy-dev/proximal/api/proxy/v1"
 )
 
 var (
@@ -56,6 +57,7 @@ func main() {
 		server.WithHandlers(middlewarev1.RegisterMiddlewareServiceHandlerFromEndpoint),
 		server.WithHandlers(logsv1.RegisterLogsServiceHandlerFromEndpoint),
 		server.WithHandlers(endpointv1.RegisterEndpointServiceHandlerFromEndpoint),
+		server.WithHandlers(proxyv1.RegisterProxyServiceHandlerFromEndpoint),
 	)
 
 	var ts *temporalite.Server
@@ -130,7 +132,7 @@ func main() {
 	envoyMgr := envoy.NewSnapshotManager(
 		s.Context,
 		middlewarev1.NewMiddlewareServiceClient(grpcClient),
-		endpointv1.NewEndpointServiceClient(grpcClient),
+		proxyv1.NewProxyServiceClient(grpcClient),
 		*buildDir,
 		*envoyListenHost,
 		*envoyListenPort,
@@ -160,6 +162,7 @@ func main() {
 	middlewarev1.RegisterMiddlewareServiceServer(s.GRPC, api.NewMiddlewareService(db, tc, fw))
 	logsv1.RegisterLogsServiceServer(s.GRPC, lsvc)
 	endpointv1.RegisterEndpointServiceServer(s.GRPC, api.NewEndpointService(db, tc, envoyMgr))
+	proxyv1.RegisterProxyServiceServer(s.GRPC, api.NewProxyService(db))
 
 	go func() {
 		exitCh := make(chan os.Signal, 1) // Buffered because sender is not waiting.

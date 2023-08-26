@@ -144,10 +144,4 @@ service EndpointService {
       delete: "/v1/endpoints/{cluster}"
     };
   }
-
-  rpc InternalListEndpoints(google.protobuf.Empty) returns (ListEndpointsResponse) {
-    option (google.api.http) = {
-      get: "/v1/internal/endpoints"
-    };
-  }
 }
