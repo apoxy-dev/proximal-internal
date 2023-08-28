@@ -161,7 +161,7 @@ func (s *ProxyService) ListProxyEndpoints(ctx context.Context, req *proxyv1.List
 	}, nil
 }
 
-func (s *ProxyService) DeleteProxy(ctx context.Context, req *proxyv1.Proxy) (*emptypb.Empty, error) {
+func (s *ProxyService) DeleteProxy(ctx context.Context, req *proxyv1.DeleteProxyRequest) (*emptypb.Empty, error) {
 	log.Infof("deleting proxy %s", req.Key)
 
 	if err := s.db.Queries().DeleteProxy(ctx, req.Key); err != nil {

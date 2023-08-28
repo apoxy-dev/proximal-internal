@@ -42,6 +42,10 @@ message DetachProxyEndpointsRequest {
   repeated string endpoints = 2;
 }
 
+message DeleteProxyRequest {
+  string key = 1;
+}
+
 service ProxyService {
   rpc CreateProxy(CreateProxyRequest) returns (Proxy) {
     option (google.api.http) = {
@@ -63,7 +67,7 @@ service ProxyService {
     };
   }
 
-  rpc DeleteProxy(Proxy) returns (google.protobuf.Empty) {
+  rpc DeleteProxy(DeleteProxyRequest) returns (google.protobuf.Empty) {
     option (google.api.http) = {
       delete: "/v1/proxy/{key}"
     };
