@@ -5,6 +5,7 @@ import (
 	"database/sql"
 
 	"github.com/gogo/status"
+	"golang.org/x/exp/slices"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/types/known/emptypb"
 
@@ -26,9 +27,10 @@ func NewProxyService(db *serverdb.DB) *ProxyService {
 	return &ProxyService{db: db}
 }
 
-func proxyFromRow(row sqlc.Proxy) *proxyv1.Proxy {
+func proxyFromRow(row sqlc.Proxy, endpoints []string) *proxyv1.Proxy {
 	return &proxyv1.Proxy{
 		Key:             row.Key,
+		Endpoints:       endpoints,
 		DefaultEndpoint: row.DefaultUpstream.String,
 	}
 }
@@ -54,15 +56,9 @@ func (s *ProxyService) CreateProxy(ctx context.Context, req *proxyv1.CreateProxy
 		return nil, status.Errorf(codes.Internal, "failed to create proxy")
 	}
 
-	for _, e := range req.Endpoints {
-		err := qtx.AddProxyEndpoint(ctx, sqlc.AddProxyEndpointParams{
-			ProxyKey:        proxy.Key,
-			EndpointCluster: e,
-		})
-		if err != nil {
-			log.Errorf("failed to add endpoint %s to proxy %s: %v", e, proxy.Key, err)
-			return nil, status.Errorf(codes.Internal, "failed to add endpoint %s to proxy %s", e, proxy.Key)
-		}
+	es, err := s.attachEndpoints(ctx, qtx, proxy.Key, req.Endpoints)
+	if err != nil {
+		return nil, err
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -70,7 +66,7 @@ func (s *ProxyService) CreateProxy(ctx context.Context, req *proxyv1.CreateProxy
 		return nil, status.Error(codes.Internal, "failed to create proxy")
 	}
 
-	return proxyFromRow(proxy), nil
+	return proxyFromRow(proxy, es), nil
 }
 
 // UpdateProxy updates a proxy.
@@ -99,15 +95,9 @@ func (s *ProxyService) UpdateProxy(ctx context.Context, updProxy *proxyv1.Proxy)
 		return nil, status.Errorf(codes.Internal, "failed to update proxy")
 	}
 
-	for _, e := range updProxy.Endpoints {
-		err := qtx.AddProxyEndpoint(ctx, sqlc.AddProxyEndpointParams{
-			ProxyKey:        proxy.Key,
-			EndpointCluster: e,
-		})
-		if err != nil {
-			log.Errorf("failed to add endpoint %s to proxy %s: %v", e, proxy.Key, err)
-			return nil, status.Errorf(codes.Internal, "failed to add endpoint %s to proxy %s", e, proxy.Key)
-		}
+	es, err := s.attachEndpoints(ctx, qtx, proxy.Key, updProxy.Endpoints)
+	if err != nil {
+		return nil, err
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -115,7 +105,7 @@ func (s *ProxyService) UpdateProxy(ctx context.Context, updProxy *proxyv1.Proxy)
 		return nil, status.Error(codes.Internal, "failed to update proxy")
 	}
 
-	return proxyFromRow(proxy), nil
+	return proxyFromRow(proxy, es), nil
 }
 
 func (s *ProxyService) ListProxyEndpoints(ctx context.Context, req *proxyv1.ListProxyEndpointsRequest) (*proxyv1.ListProxyEndpointsResponse, error) {
@@ -172,6 +162,46 @@ func (s *ProxyService) DeleteProxy(ctx context.Context, req *proxyv1.DeleteProxy
 	return &emptypb.Empty{}, nil
 }
 
+func (s *ProxyService) attachEndpoints(ctx context.Context, qtx *sqlc.Queries, proxyKey string, endpoints []string) ([]string, error) {
+	proxyEndpoints, err := s.db.Queries().GetProxyEndpoints(ctx, proxyKey)
+	if err != nil {
+		log.Errorf("failed to get proxy endpoints: %v", err)
+		return nil, status.Error(codes.Internal, "failed to attach proxy endpoints")
+	}
+	got := make([]string, len(proxyEndpoints))
+	for i, e := range proxyEndpoints {
+		got[i] = e.Cluster
+	}
+
+	for _, e := range endpoints {
+		if slices.Contains(got, e) { // Skip already attached endpoints.
+			continue
+		}
+		got = append(got, e)
+
+		_, err := qtx.GetEndpointByCluster(ctx, e)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				log.Errorf("endpoint %s does not exist", e)
+				return nil, status.Errorf(codes.NotFound, "endpoint %s does not exist", e)
+			}
+			log.Errorf("failed to get endpoint %s: %v", e, err)
+			return nil, status.Errorf(codes.Internal, "failed to create proxy")
+		}
+
+		err = qtx.AddProxyEndpoint(ctx, sqlc.AddProxyEndpointParams{
+			ProxyKey:        proxyKey,
+			EndpointCluster: e,
+		})
+		if err != nil {
+			log.Errorf("failed to add endpoint %s to proxy %s: %v", e, proxyKey, err)
+			return nil, status.Errorf(codes.Internal, "failed to add endpoint %s to proxy %s", e, proxyKey)
+		}
+	}
+
+	return got, nil
+}
+
 func (s *ProxyService) AttachProxyEndpoints(ctx context.Context, req *proxyv1.AttachProxyEndpointsRequest) (*proxyv1.Proxy, error) {
 	log.Infof("attaching proxy endpoints to proxy %s", req.Key)
 
@@ -189,15 +219,9 @@ func (s *ProxyService) AttachProxyEndpoints(ctx context.Context, req *proxyv1.At
 		return nil, status.Error(codes.Internal, "failed to attach proxy endpoints")
 	}
 
-	for _, e := range req.Endpoints {
-		err := qtx.AddProxyEndpoint(ctx, sqlc.AddProxyEndpointParams{
-			ProxyKey:        proxy.Key,
-			EndpointCluster: e,
-		})
-		if err != nil {
-			log.Errorf("failed to add endpoint %s to proxy %s: %v", e, proxy.Key, err)
-			return nil, status.Errorf(codes.Internal, "failed to add endpoint %s to proxy %s", e, proxy.Key)
-		}
+	es, err := s.attachEndpoints(ctx, qtx, proxy.Key, req.Endpoints)
+	if err != nil {
+		return nil, err
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -205,7 +229,7 @@ func (s *ProxyService) AttachProxyEndpoints(ctx context.Context, req *proxyv1.At
 		return nil, status.Error(codes.Internal, "failed to attach proxy endpoints")
 	}
 
-	return proxyFromRow(proxy), nil
+	return proxyFromRow(proxy, es), nil
 }
 
 func (s *ProxyService) DetachProxyEndpoints(ctx context.Context, req *proxyv1.DetachProxyEndpointsRequest) (*proxyv1.Proxy, error) {
@@ -236,10 +260,20 @@ func (s *ProxyService) DetachProxyEndpoints(ctx context.Context, req *proxyv1.De
 		}
 	}
 
+	proxyEndpoints, err := s.db.Queries().GetProxyEndpoints(ctx, proxy.Key)
+	if err != nil {
+		log.Errorf("failed to get proxy endpoints: %v", err)
+		return nil, status.Error(codes.Internal, "failed to attach proxy endpoints")
+	}
+	endpoints := make([]string, len(proxyEndpoints))
+	for i, e := range proxyEndpoints {
+		endpoints[i] = e.Cluster
+	}
+
 	if err := tx.Commit(); err != nil {
 		log.Errorf("failed to commit transaction: %v", err)
 		return nil, status.Error(codes.Internal, "failed to detach proxy endpoints")
 	}
 
-	return proxyFromRow(proxy), nil
+	return proxyFromRow(proxy, endpoints), nil
 }
