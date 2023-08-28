@@ -493,6 +493,8 @@ func (s *SnapshotManager) httpConnectionManager(ctx context.Context, mds []*midd
 		RouteSpecifier: &httpproxyv3.HttpConnectionManager_RouteConfig{
 			RouteConfig: &envoy_config_route_v3.RouteConfiguration{
 				Name: "local_route",
+				// Default is true so if default upstream not set yet, will fail xDS discovery update.
+				ValidateClusters: &wrapperspb.BoolValue{Value: false},
 				VirtualHosts: []*envoy_config_route_v3.VirtualHost{{
 					Name:    defaultUpstreamCluster,
 					Domains: []string{"*"},
