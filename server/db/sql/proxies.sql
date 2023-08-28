@@ -48,3 +48,12 @@ WHERE cluster IN (
 DELETE FROM proxies_endpoints
 WHERE proxy_key = ?
 AND endpoint_cluster = ?;
+
+-- name: RemoveAllProxyEndpoints :exec
+DELETE FROM proxies_endpoints
+WHERE proxy_key = ?;
+
+-- name: DeleteProxy :exec
+DELETE FROM proxies
+WHERE key = ?
+LIMIT 1;

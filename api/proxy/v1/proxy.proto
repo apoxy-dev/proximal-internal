@@ -6,6 +6,7 @@ option go_package = "github.com/apoxy-dev/proximal/api/proxy/v1;proxyv1";
 
 import "google/api/annotations.proto";
 import "google/protobuf/timestamp.proto";
+import "google/protobuf/empty.proto";
 
 import "api/endpoint/v1/endpoint.proto";
 
@@ -31,6 +32,16 @@ message ListProxyEndpointsResponse {
   repeated endpoints.v1.Endpoint endpoints = 1;
 }
 
+message AttachProxyEndpointsRequest {
+  string key = 1;
+  repeated string endpoints = 2;
+}
+
+message DetachProxyEndpointsRequest {
+  string key = 1;
+  repeated string endpoints = 2;
+}
+
 service ProxyService {
   rpc CreateProxy(CreateProxyRequest) returns (Proxy) {
     option (google.api.http) = {
@@ -39,9 +50,35 @@ service ProxyService {
     };
   }
 
+  rpc UpdateProxy(Proxy) returns (Proxy) {
+    option (google.api.http) = {
+      put: "/v1/proxy/{key}"
+      body: "*"
+    };
+  }
+
   rpc ListProxyEndpoints(ListProxyEndpointsRequest) returns (ListProxyEndpointsResponse) {
     option (google.api.http) = {
       get: "/v1/proxy/{key}/endpoints"
+    };
+  }
+
+  rpc DeleteProxy(Proxy) returns (google.protobuf.Empty) {
+    option (google.api.http) = {
+      delete: "/v1/proxy/{key}"
+    };
+  }
+
+  rpc AttachProxyEndpoints(AttachProxyEndpointsRequest) returns (Proxy) {
+    option (google.api.http) = {
+      post: "/v1/proxy/{key}/endpoints"
+      body: "*"
+    };
+  }
+
+  rpc DetachProxyEndpoints(DetachProxyEndpointsRequest) returns (Proxy) {
+    option (google.api.http) = {
+      delete: "/v1/proxy/{key}/endpoints"
     };
   }
 }
