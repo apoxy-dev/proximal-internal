@@ -62,7 +62,8 @@ type Runtime struct {
 	// Args are additional arguments to pass to Envoy.
 	Args []string
 
-	cmd *exec.Cmd
+	exitCh chan struct{}
+	cmd    *exec.Cmd
 }
 
 func (r *Runtime) run(ctx context.Context) error {
@@ -154,7 +155,7 @@ func (r *Runtime) Run(ctx context.Context) error {
 		return fmt.Errorf("failed to vendor envoy: %w", err)
 	}
 
-	// Run the Envoy binary.
+	r.exitCh = make(chan struct{})
 	for {
 		select {
 		case <-ctx.Done():
@@ -162,18 +163,18 @@ func (r *Runtime) Run(ctx context.Context) error {
 		default:
 		}
 
-		exitCh := make(chan struct{})
-		go func() {
-			if err := r.run(ctx); err != nil {
-				log.Errorf("envoy exited with error: %v", err)
-			}
-			close(exitCh)
-		}()
+		if err := r.run(ctx); err != nil {
+			log.Errorf("envoy exited with error: %v", err)
+		}
 
 		select {
 		case <-ctx.Done():
+			log.Infof("context done")
+			return ctx.Err()
+		case <-r.exitCh:
+			log.Infof("envoy stopped")
 			return nil
-		case <-exitCh:
+		default: // Restart envoy.
 		}
 	}
 
@@ -185,5 +186,6 @@ func (r *Runtime) Stop() error {
 	if r.cmd == nil {
 		return nil
 	}
+	close(r.exitCh)
 	return r.cmd.Process.Kill()
 }

@@ -189,7 +189,6 @@ func (s *ProxyService) attachEndpoints(ctx context.Context, qtx *sqlc.Queries, p
 		if slices.Contains(got, e) { // Skip already attached endpoints.
 			continue
 		}
-		got = append(got, e)
 
 		_, err := qtx.GetEndpointByCluster(ctx, e)
 		if err != nil {
@@ -209,6 +208,8 @@ func (s *ProxyService) attachEndpoints(ctx context.Context, qtx *sqlc.Queries, p
 			log.Errorf("failed to add endpoint %s to proxy %s: %v", e, proxyKey, err)
 			return nil, status.Errorf(codes.Internal, "failed to add endpoint %s to proxy %s", e, proxyKey)
 		}
+
+		got = append(got, e)
 	}
 
 	return got, nil
@@ -240,8 +241,8 @@ func (s *ProxyService) AttachProxyEndpoints(ctx context.Context, req *proxyv1.At
 		return nil, err
 	}
 
-	if !slices.Contains(es, req.DefaultEndpoint) {
-		return nil, status.Errorf(codes.InvalidArgument, "default upstream %s not found in endpoints", req.DefaultEndpoint)
+	if req.DefaultEndpoint != "" && !slices.Contains(es, req.DefaultEndpoint) {
+		return nil, status.Errorf(codes.InvalidArgument, "default upstream %q not found in endpoints", req.DefaultEndpoint)
 	} else if proxy.DefaultUpstream.String != req.DefaultEndpoint {
 		if proxy, err = qtx.UpdateProxy(ctx, sqlc.UpdateProxyParams{
 			Key:             proxy.Key,
@@ -282,7 +283,7 @@ func (s *ProxyService) DetachProxyEndpoints(ctx context.Context, req *proxyv1.De
 	}
 
 	if slices.Contains(req.Endpoints, proxy.DefaultUpstream.String) {
-		return nil, status.Errorf(codes.InvalidArgument, "default upstream %s cannot be detached", proxy.DefaultUpstream.String)
+		return nil, status.Errorf(codes.InvalidArgument, "default upstream %q cannot be detached", proxy.DefaultUpstream.String)
 	}
 
 	for _, e := range req.Endpoints {
