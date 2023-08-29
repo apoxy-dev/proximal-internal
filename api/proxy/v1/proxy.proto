@@ -33,12 +33,26 @@ message ListProxyEndpointsResponse {
 }
 
 message AttachProxyEndpointsRequest {
+  // Proxy key to attach endpoints to.
   string key = 1;
+
+  // Endpoints to attach to the proxy. If already attached, will be ignored.
+  // If one or more endpoints are not found, the entire request will fail.
   repeated string endpoints = 2;
+
+  // If set, will reset default endpoint of the proxy. Does not need to be
+  // included in the endpoints list. If does not exist, will fail entire request
+  // and not attach any endpoints.
+  string default_endpoint = 3;
 }
 
 message DetachProxyEndpointsRequest {
+  // Proxy key to detach endpoints from.
   string key = 1;
+
+  // Endpoints to detach from the proxy. If not attached, will be ignored.
+  // If one of the endpoints is default endpoint, will fail entire request and
+  // not detach any endpoints.
   repeated string endpoints = 2;
 }
 

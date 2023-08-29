@@ -240,6 +240,18 @@ func (s *ProxyService) AttachProxyEndpoints(ctx context.Context, req *proxyv1.At
 		return nil, err
 	}
 
+	if !slices.Contains(es, req.DefaultEndpoint) {
+		return nil, status.Errorf(codes.InvalidArgument, "default upstream %s not found in endpoints", req.DefaultEndpoint)
+	} else if proxy.DefaultUpstream.String != req.DefaultEndpoint {
+		if proxy, err = qtx.UpdateProxy(ctx, sqlc.UpdateProxyParams{
+			Key:             proxy.Key,
+			DefaultUpstream: sql.NullString{String: req.DefaultEndpoint, Valid: true},
+		}); err != nil {
+			log.Errorf("failed to update proxy: %v", err)
+			return nil, status.Error(codes.Internal, "failed to attach proxy endpoints")
+		}
+	}
+
 	if err := tx.Commit(); err != nil {
 		log.Errorf("failed to commit transaction: %v", err)
 		return nil, status.Error(codes.Internal, "failed to attach proxy endpoints")
@@ -267,6 +279,10 @@ func (s *ProxyService) DetachProxyEndpoints(ctx context.Context, req *proxyv1.De
 
 		log.Errorf("failed to get proxy: %v", err)
 		return nil, status.Error(codes.Internal, "failed to detach proxy endpoints")
+	}
+
+	if slices.Contains(req.Endpoints, proxy.DefaultUpstream.String) {
+		return nil, status.Errorf(codes.InvalidArgument, "default upstream %s cannot be detached", proxy.DefaultUpstream.String)
 	}
 
 	for _, e := range req.Endpoints {
