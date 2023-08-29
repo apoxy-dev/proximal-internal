@@ -113,12 +113,20 @@ func (s *ProxyService) ListProxyEndpoints(ctx context.Context, req *proxyv1.List
 
 	endpoints, err := s.db.Queries().GetProxyEndpoints(ctx, req.Key)
 	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, status.Errorf(codes.NotFound, "endpoints %s not found", req.Key)
+		}
+
 		log.Errorf("failed to list proxy endpoints: %v", err)
 		return nil, status.Error(codes.Internal, "failed to list proxy endpoints")
 	}
 
 	proxy, err := s.db.Queries().GetProxy(ctx, req.Key)
 	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, status.Errorf(codes.NotFound, "proxy %s not found", req.Key)
+		}
+
 		log.Errorf("failed to get proxy: %v", err)
 		return nil, status.Error(codes.Internal, "failed to list proxy endpoints")
 	}
@@ -165,6 +173,10 @@ func (s *ProxyService) DeleteProxy(ctx context.Context, req *proxyv1.DeleteProxy
 func (s *ProxyService) attachEndpoints(ctx context.Context, qtx *sqlc.Queries, proxyKey string, endpoints []string) ([]string, error) {
 	proxyEndpoints, err := s.db.Queries().GetProxyEndpoints(ctx, proxyKey)
 	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, status.Errorf(codes.NotFound, "endpoints not found for %s", proxyKey)
+		}
+
 		log.Errorf("failed to get proxy endpoints: %v", err)
 		return nil, status.Error(codes.Internal, "failed to attach proxy endpoints")
 	}
@@ -215,6 +227,10 @@ func (s *ProxyService) AttachProxyEndpoints(ctx context.Context, req *proxyv1.At
 
 	proxy, err := s.db.Queries().GetProxy(ctx, req.Key)
 	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, status.Errorf(codes.NotFound, "proxy %s not found", req.Key)
+		}
+
 		log.Errorf("failed to get proxy: %v", err)
 		return nil, status.Error(codes.Internal, "failed to attach proxy endpoints")
 	}
@@ -245,6 +261,10 @@ func (s *ProxyService) DetachProxyEndpoints(ctx context.Context, req *proxyv1.De
 
 	proxy, err := s.db.Queries().GetProxy(ctx, req.Key)
 	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, status.Errorf(codes.NotFound, "proxy %s not found", req.Key)
+		}
+
 		log.Errorf("failed to get proxy: %v", err)
 		return nil, status.Error(codes.Internal, "failed to detach proxy endpoints")
 	}
@@ -262,6 +282,10 @@ func (s *ProxyService) DetachProxyEndpoints(ctx context.Context, req *proxyv1.De
 
 	proxyEndpoints, err := s.db.Queries().GetProxyEndpoints(ctx, proxy.Key)
 	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, status.Errorf(codes.NotFound, "endpoints not found for %s", req.Key)
+		}
+
 		log.Errorf("failed to get proxy endpoints: %v", err)
 		return nil, status.Error(codes.Internal, "failed to attach proxy endpoints")
 	}
