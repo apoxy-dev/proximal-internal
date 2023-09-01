@@ -72,7 +72,7 @@ func (s *ProxyService) CreateProxy(ctx context.Context, req *proxyv1.CreateProxy
 	}
 
 	go func() {
-		if err := s.snapshotMgr.TriggerUpdate(ctx); err != nil {
+		if err := s.snapshotMgr.TriggerUpdate(context.WithoutCancel(ctx)); err != nil {
 			log.Warnf("failed to trigger snapshot update: %v", err)
 		}
 	}()
@@ -117,7 +117,7 @@ func (s *ProxyService) UpdateProxy(ctx context.Context, updProxy *proxyv1.Proxy)
 	}
 
 	go func() {
-		if err := s.snapshotMgr.TriggerUpdate(ctx); err != nil {
+		if err := s.snapshotMgr.TriggerUpdate(context.WithoutCancel(ctx)); err != nil {
 			log.Warnf("failed to trigger snapshot update: %v", err)
 		}
 	}()
@@ -185,7 +185,7 @@ func (s *ProxyService) DeleteProxy(ctx context.Context, req *proxyv1.DeleteProxy
 	}
 
 	go func() {
-		if err := s.snapshotMgr.TriggerUpdate(ctx); err != nil {
+		if err := s.snapshotMgr.TriggerUpdate(context.WithoutCancel(ctx)); err != nil {
 			log.Warnf("failed to trigger snapshot update: %v", err)
 		}
 	}()
@@ -282,7 +282,7 @@ func (s *ProxyService) AttachProxyEndpoints(ctx context.Context, req *proxyv1.At
 	}
 
 	go func() {
-		if err := s.snapshotMgr.TriggerUpdate(ctx); err != nil {
+		if err := s.snapshotMgr.TriggerUpdate(context.WithoutCancel(ctx)); err != nil {
 			log.Warnf("failed to trigger snapshot update: %v", err)
 		}
 	}()
@@ -346,7 +346,7 @@ func (s *ProxyService) DetachProxyEndpoints(ctx context.Context, req *proxyv1.De
 	}
 
 	go func() {
-		if err := s.snapshotMgr.TriggerUpdate(ctx); err != nil {
+		if err := s.snapshotMgr.TriggerUpdate(context.WithoutCancel(ctx)); err != nil {
 			log.Warnf("failed to trigger snapshot update: %v", err)
 		}
 	}()

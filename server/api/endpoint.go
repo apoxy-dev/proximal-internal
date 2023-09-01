@@ -489,7 +489,8 @@ func (s *EndpointService) DeleteEndpoint(ctx context.Context, req *endpointv1.De
 	}
 
 	go func() {
-		if err := s.snapshotMgr.TriggerUpdate(ctx); err != nil {
+		updCtx := context.WithoutCancel(ctx)
+		if err := s.snapshotMgr.TriggerUpdate(updCtx); err != nil {
 			log.Warnf("failed to trigger snapshot update: %v", err)
 		}
 	}()

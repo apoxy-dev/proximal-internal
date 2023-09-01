@@ -2,7 +2,10 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library")
 
 go_library(
     name = "envoy",
-    srcs = ["envoy.go"],
+    srcs = [
+        "envoy.go",
+        "middleware.go",
+    ],
     importpath = "github.com/apoxy-dev/proximal/server/envoy",
     visibility = ["//visibility:public"],
     deps = [

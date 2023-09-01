@@ -2,19 +2,34 @@ load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
 http_archive(
     name = "io_bazel_rules_go",
-    sha256 = "51dc53293afe317d2696d4d6433a4c33feedb7748a9e352072e2ec3c0dafd2c6",
+    sha256 = "278b7ff5a826f3dc10f04feaf0b70d48b68748ccd512d7f98bf442077f043fe3",
     urls = [
-        "https://mirror.bazel.build/github.com/bazelbuild/rules_go/releases/download/v0.40.1/rules_go-v0.40.1.zip",
-        "https://github.com/bazelbuild/rules_go/releases/download/v0.40.1/rules_go-v0.40.1.zip",
+        "https://mirror.bazel.build/github.com/bazelbuild/rules_go/releases/download/v0.41.0/rules_go-v0.41.0.zip",
+        "https://github.com/bazelbuild/rules_go/releases/download/v0.41.0/rules_go-v0.41.0.zip",
     ],
 )
 
 http_archive(
-    name = "bazel_gazelle",
-    sha256 = "727f3e4edd96ea20c29e8c2ca9e8d2af724d8c7778e7923a854b2c80952bc405",
+    name = "googleapis",
+    sha256 = "9d1a930e767c93c825398b8f8692eca3fe353b9aaadedfbcf1fca2282c85df88",
+    strip_prefix = "googleapis-64926d52febbf298cb82a8f472ade4a3969ba922",
     urls = [
-        "https://mirror.bazel.build/github.com/bazelbuild/bazel-gazelle/releases/download/v0.30.0/bazel-gazelle-v0.30.0.tar.gz",
-        "https://github.com/bazelbuild/bazel-gazelle/releases/download/v0.30.0/bazel-gazelle-v0.30.0.tar.gz",
+        "https://github.com/googleapis/googleapis/archive/64926d52febbf298cb82a8f472ade4a3969ba922.zip",
+    ],
+)
+
+load("@googleapis//:repository_rules.bzl", "switched_rules_by_language")
+
+switched_rules_by_language(
+    name = "com_google_googleapis_imports",
+)
+
+http_archive(
+    name = "bazel_gazelle",
+    sha256 = "29218f8e0cebe583643cbf93cae6f971be8a2484cdcfa1e45057658df8d54002",
+    urls = [
+        "https://mirror.bazel.build/github.com/bazelbuild/bazel-gazelle/releases/download/v0.32.0/bazel-gazelle-v0.32.0.tar.gz",
+        "https://github.com/bazelbuild/bazel-gazelle/releases/download/v0.32.0/bazel-gazelle-v0.32.0.tar.gz",
     ],
 )
 
@@ -71,12 +86,12 @@ go_repository(
 go_repository(
     name = "com_github_cloudflare_circl",
     importpath = "github.com/cloudflare/circl",
-    sum = "h1:fE/Qz0QdIGqeWfnwq0RE0R7MI51s0M2E4Ga9kq5AEMs=",
     patch_args = ["-p1"],
     patches = [
         # CGo headers need to be properly referenced for amd64 paltform.
         "//thirdparty:com_github_cloudflare_circl-amd64-cgo.patch",
     ],
+    sum = "h1:fE/Qz0QdIGqeWfnwq0RE0R7MI51s0M2E4Ga9kq5AEMs=",
     version = "v1.3.3",
 )
 
@@ -226,13 +241,11 @@ zig_toolchains(
 
 go_repository(
     name = "com_github_grpc_ecosystem_grpc_gateway",
-    build_file_proto_mode = "disable_global",
-    build_naming_convention = "go_default_library",
+    build_file_generation = "on",
     importpath = "github.com/grpc-ecosystem/grpc-gateway",
-    patch_args = ["-p1"],
-    patches = [
-        # Some linking conflicts resolution for Temporal.
-        "//thirdparty:com_github_grpc_ecosystem_grpc_gateway.patch",
+    build_extra_args = ["-exclude=third_party"],
+    build_directives = [
+        "gazelle:resolve go github.com/golang/protobuf/descriptor @com_github_golang_protobuf//descriptor:descriptor",
     ],
     sum = "h1:gmcG1KaJ57LophUzW0Hy8NmPhnMZb4M0+kPpLofRdBo=",
     version = "v1.16.0",
@@ -268,9 +281,14 @@ go_repository(
 
 go_repository(
     name = "com_github_grpc_ecosystem_grpc_gateway_v2",
+    build_file_generation = "off",
+    build_directives = [
+        "gazelle:resolve proto go google/api/annotations.proto @org_golang_google_genproto//googleapis/api/annotations",
+        "gazelle:resolve proto go google/api/httpbody.proto @org_golang_google_genproto//googleapis/api/httpbody",
+    ],
     importpath = "github.com/grpc-ecosystem/grpc-gateway/v2",
-    sum = "h1:gDLXvp5S9izjldquuoAhDzccbskOL6tDC5jMSyx3zxE=",
-    version = "v2.15.2",
+    sum = "h1:LSsiG61v9IzzxMkqEr6nrix4miJI62xlRjwT7BYD2SM=",
+    version = "v2.17.1",
 )
 
 go_repository(
@@ -308,20 +326,21 @@ go_repository(
     version = "v1.6.7",
 )
 
-go_repository(
-    name = "org_golang_google_genproto",
-    build_file_proto_mode = "disable_global",
-    importpath = "google.golang.org/genproto",
-    sum = "h1:8DyZCyvI8mE1IdLy/60bS+52xfymkE72wv1asokgtao=",
-    version = "v0.0.0-20230530153820-e85fd2cbaebc",
-)
-
+#go_repository(
+#    name = "org_golang_google_genproto",
+#    build_extra_args = ["-exclude=vendor"],
+#    build_file_generation = "on",
+#    build_file_proto_mode = "disable_global",
+#    importpath = "google.golang.org/genproto",
+#    sum = "h1:8DyZCyvI8mE1IdLy/60bS+52xfymkE72wv1asokgtao=",
+#    version = "v0.0.0-20230530153820-e85fd2cbaebc",
+#)
 go_repository(
     name = "org_golang_google_genproto_googleapis_api",
     build_file_proto_mode = "disable_global",
     importpath = "google.golang.org/genproto/googleapis/api",
-    sum = "h1:kVKPf/IiYSBWEWtkIn6wZXwWGCnLKcC8oWfZvXjsGnM=",
-    version = "v0.0.0-20230530153820-e85fd2cbaebc",
+    sum = "h1:DoPTO70H+bcDXcd39vOqb2viZxgqeBeSGtZ55yZU4/Q=",
+    version = "v0.0.0-20230822172742-b8732ec3820d",
 )
 
 go_repository(
@@ -627,7 +646,7 @@ go_repository(
     name = "com_github_envoyproxy_go_control_plane",
     build_directives = [
         # @go_googleapis is what go_rules pass so rewrite resolution rules to avoid conflicts.
-        "gazelle:resolve go google.golang.org/genproto/googleapis/api/annotations @go_googleapis//google/api:annotations_go_proto",  # keep
+        "gazelle:resolve go google.golang.org/genproto/googleapis/api/annotations @org_golang_google_genproto//googleapis/api/annotations",  # keep
     ],
     build_file_proto_mode = "disable_global",
     importpath = "github.com/envoyproxy/go-control-plane",
@@ -882,10 +901,6 @@ go_repository(
     name = "com_github_googleapis_gax_go_v2",
     build_file_proto_mode = "disable_global",
     importpath = "github.com/googleapis/gax-go/v2",
-    patch_args = ["-p1"],
-    patches = [
-        "//thirdparty:com_github_googleapis_gax_go_v2-googleapis.patch",
-    ],
     sum = "h1:gF4c0zjUP2H/s/hEGyLA3I0fA2ZWjzYiONAD6cvPr8A=",
     version = "v2.7.1",
 )
@@ -1893,6 +1908,9 @@ go_repository(
 go_repository(
     name = "com_google_cloud_go_iam",
     importpath = "cloud.google.com/go/iam",
+    build_directives = [
+        "gazelle:resolve go google.golang.org/genproto/googleapis/api/annotations @org_golang_google_genproto//googleapis/api/annotations",
+    ],
     sum = "h1:+CmB+K0J/33d0zSQ9SlFWUeCCEn5XJA0ZMZ3pHE9u8k=",
     version = "v0.13.0",
 )
@@ -2209,9 +2227,8 @@ go_repository(
     name = "com_google_cloud_go_storage",
     build_file_proto_mode = "disable_global",
     importpath = "cloud.google.com/go/storage",
-    patch_args = ["-p1"],
-    patches = [
-        "//thirdparty:com_google_cloud_go_storage-go-googleapis.patch",
+    build_directives = [
+        "gazelle:resolve go google.golang.org/genproto/googleapis/api/annotations @org_golang_google_genproto//googleapis/api/annotations",
     ],
     sum = "h1:uOdMxAs8HExqBlnLtnQyP0YkvbiDpdGShGKtx6U/oNM=",
     version = "v1.30.1",
@@ -3811,7 +3828,7 @@ go_repository(
 
 go_rules_dependencies()
 
-go_register_toolchains(version = "1.20.5")
+go_register_toolchains(version = "1.21.0")
 
 gazelle_dependencies()
 
