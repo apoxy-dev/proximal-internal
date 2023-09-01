@@ -241,12 +241,12 @@ zig_toolchains(
 
 go_repository(
     name = "com_github_grpc_ecosystem_grpc_gateway",
-    build_file_generation = "on",
-    importpath = "github.com/grpc-ecosystem/grpc-gateway",
-    build_extra_args = ["-exclude=third_party"],
     build_directives = [
         "gazelle:resolve go github.com/golang/protobuf/descriptor @com_github_golang_protobuf//descriptor:descriptor",
     ],
+    build_extra_args = ["-exclude=third_party"],
+    build_file_generation = "on",
+    importpath = "github.com/grpc-ecosystem/grpc-gateway",
     sum = "h1:gmcG1KaJ57LophUzW0Hy8NmPhnMZb4M0+kPpLofRdBo=",
     version = "v1.16.0",
 )
@@ -281,11 +281,11 @@ go_repository(
 
 go_repository(
     name = "com_github_grpc_ecosystem_grpc_gateway_v2",
-    build_file_generation = "off",
     build_directives = [
         "gazelle:resolve proto go google/api/annotations.proto @org_golang_google_genproto//googleapis/api/annotations",
         "gazelle:resolve proto go google/api/httpbody.proto @org_golang_google_genproto//googleapis/api/httpbody",
     ],
+    build_file_generation = "off",
     importpath = "github.com/grpc-ecosystem/grpc-gateway/v2",
     sum = "h1:LSsiG61v9IzzxMkqEr6nrix4miJI62xlRjwT7BYD2SM=",
     version = "v2.17.1",
@@ -326,15 +326,6 @@ go_repository(
     version = "v1.6.7",
 )
 
-#go_repository(
-#    name = "org_golang_google_genproto",
-#    build_extra_args = ["-exclude=vendor"],
-#    build_file_generation = "on",
-#    build_file_proto_mode = "disable_global",
-#    importpath = "google.golang.org/genproto",
-#    sum = "h1:8DyZCyvI8mE1IdLy/60bS+52xfymkE72wv1asokgtao=",
-#    version = "v0.0.0-20230530153820-e85fd2cbaebc",
-#)
 go_repository(
     name = "org_golang_google_genproto_googleapis_api",
     build_file_proto_mode = "disable_global",
@@ -1907,10 +1898,10 @@ go_repository(
 
 go_repository(
     name = "com_google_cloud_go_iam",
-    importpath = "cloud.google.com/go/iam",
     build_directives = [
         "gazelle:resolve go google.golang.org/genproto/googleapis/api/annotations @org_golang_google_genproto//googleapis/api/annotations",
     ],
+    importpath = "cloud.google.com/go/iam",
     sum = "h1:+CmB+K0J/33d0zSQ9SlFWUeCCEn5XJA0ZMZ3pHE9u8k=",
     version = "v0.13.0",
 )
@@ -2225,11 +2216,11 @@ go_repository(
 
 go_repository(
     name = "com_google_cloud_go_storage",
-    build_file_proto_mode = "disable_global",
-    importpath = "cloud.google.com/go/storage",
     build_directives = [
         "gazelle:resolve go google.golang.org/genproto/googleapis/api/annotations @org_golang_google_genproto//googleapis/api/annotations",
     ],
+    build_file_proto_mode = "disable_global",
+    importpath = "cloud.google.com/go/storage",
     sum = "h1:uOdMxAs8HExqBlnLtnQyP0YkvbiDpdGShGKtx6U/oNM=",
     version = "v1.30.1",
 )
@@ -3844,6 +3835,15 @@ http_archive(
 load("@com_google_protobuf//:protobuf_deps.bzl", "protobuf_deps")
 
 protobuf_deps()
+
+http_archive(
+    name = "com_github_bazelbuild_buildtools",
+    sha256 = "ae34c344514e08c23e90da0e2d6cb700fcd28e80c02e23e4d5715dddcb42f7b3",
+    strip_prefix = "buildtools-4.2.2",
+    urls = [
+        "https://github.com/bazelbuild/buildtools/archive/refs/tags/4.2.2.tar.gz",
+    ],
+)
 
 # SQLC rules.
 
