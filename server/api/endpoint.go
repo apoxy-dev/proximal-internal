@@ -239,6 +239,7 @@ func (s *EndpointService) CreateEndpoint(
 		}
 	}
 
+	// Trigger synchronous snapshot update if this is a magic endpoint.
 	if req.Endpoint.GetIsMagic() {
 		if err := s.snapshotMgr.TriggerUpdate(ctx); err != nil {
 			log.Errorf("failed to trigger snapshot update: %v", err)
@@ -246,13 +247,13 @@ func (s *EndpointService) CreateEndpoint(
 		}
 	}
 
-	if err := tx.Commit(); err != nil {
-		log.Errorf("failed to commit transaction: %v", err)
+	epb, err := endpointFromRow(e, defaultUpstream, req.Endpoint.Addresses)
+	if err != nil {
 		return nil, status.Error(codes.Internal, "failed to create endpoint")
 	}
 
-	epb, err := endpointFromRow(e, defaultUpstream, req.Endpoint.Addresses)
-	if err != nil {
+	if err := tx.Commit(); err != nil {
+		log.Errorf("failed to commit transaction: %v", err)
 		return nil, status.Error(codes.Internal, "failed to create endpoint")
 	}
 
@@ -413,6 +414,7 @@ func (s *EndpointService) UpdateEndpoint(
 		return nil, status.Error(codes.Internal, "failed to update endpoint")
 	}
 
+	// Trigger synchronous snapshot update if this is a magic endpoint.
 	if req.Endpoint.GetIsMagic() {
 		if err := s.snapshotMgr.TriggerUpdate(ctx); err != nil {
 			log.Errorf("failed to trigger snapshot update: %v", err)
@@ -420,14 +422,14 @@ func (s *EndpointService) UpdateEndpoint(
 		}
 	}
 
-	if err := tx.Commit(); err != nil {
-		log.Errorf("failed to commit transaction: %v", err)
-		return nil, status.Error(codes.Internal, "failed to update endpoint")
-	}
-
 	epb, err := endpointFromRow(e, req.Endpoint.DefaultUpstream, req.Endpoint.Addresses)
 	if err != nil {
 		log.Errorf("failed to create endpoint: %v", err)
+		return nil, status.Error(codes.Internal, "failed to update endpoint")
+	}
+
+	if err := tx.Commit(); err != nil {
+		log.Errorf("failed to commit transaction: %v", err)
 		return nil, status.Error(codes.Internal, "failed to update endpoint")
 	}
 
@@ -485,6 +487,12 @@ func (s *EndpointService) DeleteEndpoint(ctx context.Context, req *endpointv1.De
 		log.Errorf("failed to commit transaction: %v", err)
 		return nil, status.Error(codes.Internal, "failed to delete endpoint")
 	}
+
+	go func() {
+		if err := s.snapshotMgr.TriggerUpdate(ctx); err != nil {
+			log.Warnf("failed to trigger snapshot update: %v", err)
+		}
+	}()
 
 	return &emptypb.Empty{}, nil
 }

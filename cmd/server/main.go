@@ -162,7 +162,7 @@ func main() {
 	middlewarev1.RegisterMiddlewareServiceServer(s.GRPC, api.NewMiddlewareService(db, tc, fw))
 	logsv1.RegisterLogsServiceServer(s.GRPC, lsvc)
 	endpointv1.RegisterEndpointServiceServer(s.GRPC, api.NewEndpointService(db, tc, envoyMgr))
-	proxyv1.RegisterProxyServiceServer(s.GRPC, api.NewProxyService(db))
+	proxyv1.RegisterProxyServiceServer(s.GRPC, api.NewProxyService(db, envoyMgr))
 
 	go func() {
 		exitCh := make(chan os.Signal, 1) // Buffered because sender is not waiting.

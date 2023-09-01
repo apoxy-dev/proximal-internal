@@ -12,6 +12,7 @@ import (
 	"github.com/apoxy-dev/proximal/core/log"
 	serverdb "github.com/apoxy-dev/proximal/server/db"
 	sqlc "github.com/apoxy-dev/proximal/server/db/sql"
+	"github.com/apoxy-dev/proximal/server/envoy"
 
 	endpointv1 "github.com/apoxy-dev/proximal/api/endpoint/v1"
 	proxyv1 "github.com/apoxy-dev/proximal/api/proxy/v1"
@@ -19,12 +20,16 @@ import (
 
 // ProxyService implements the ProxyServiceServer interface.
 type ProxyService struct {
-	db *serverdb.DB
+	db          *serverdb.DB
+	snapshotMgr *envoy.SnapshotManager
 }
 
 // NewProxyService returns a new ProxyService.
-func NewProxyService(db *serverdb.DB) *ProxyService {
-	return &ProxyService{db: db}
+func NewProxyService(db *serverdb.DB, snapshotMgr *envoy.SnapshotManager) *ProxyService {
+	return &ProxyService{
+		db:          db,
+		snapshotMgr: snapshotMgr,
+	}
 }
 
 func proxyFromRow(row sqlc.Proxy, endpoints []string) *proxyv1.Proxy {
@@ -66,6 +71,12 @@ func (s *ProxyService) CreateProxy(ctx context.Context, req *proxyv1.CreateProxy
 		return nil, status.Error(codes.Internal, "failed to create proxy")
 	}
 
+	go func() {
+		if err := s.snapshotMgr.TriggerUpdate(ctx); err != nil {
+			log.Warnf("failed to trigger snapshot update: %v", err)
+		}
+	}()
+
 	return proxyFromRow(proxy, es), nil
 }
 
@@ -104,6 +115,12 @@ func (s *ProxyService) UpdateProxy(ctx context.Context, updProxy *proxyv1.Proxy)
 		log.Errorf("failed to commit transaction: %v", err)
 		return nil, status.Error(codes.Internal, "failed to update proxy")
 	}
+
+	go func() {
+		if err := s.snapshotMgr.TriggerUpdate(ctx); err != nil {
+			log.Warnf("failed to trigger snapshot update: %v", err)
+		}
+	}()
 
 	return proxyFromRow(proxy, es), nil
 }
@@ -166,6 +183,12 @@ func (s *ProxyService) DeleteProxy(ctx context.Context, req *proxyv1.DeleteProxy
 		log.Errorf("failed to delete proxy: %v", err)
 		return nil, status.Error(codes.Internal, "failed to delete proxy")
 	}
+
+	go func() {
+		if err := s.snapshotMgr.TriggerUpdate(ctx); err != nil {
+			log.Warnf("failed to trigger snapshot update: %v", err)
+		}
+	}()
 
 	return &emptypb.Empty{}, nil
 }
@@ -258,6 +281,12 @@ func (s *ProxyService) AttachProxyEndpoints(ctx context.Context, req *proxyv1.At
 		return nil, status.Error(codes.Internal, "failed to attach proxy endpoints")
 	}
 
+	go func() {
+		if err := s.snapshotMgr.TriggerUpdate(ctx); err != nil {
+			log.Warnf("failed to trigger snapshot update: %v", err)
+		}
+	}()
+
 	return proxyFromRow(proxy, es), nil
 }
 
@@ -315,6 +344,12 @@ func (s *ProxyService) DetachProxyEndpoints(ctx context.Context, req *proxyv1.De
 		log.Errorf("failed to commit transaction: %v", err)
 		return nil, status.Error(codes.Internal, "failed to detach proxy endpoints")
 	}
+
+	go func() {
+		if err := s.snapshotMgr.TriggerUpdate(ctx); err != nil {
+			log.Warnf("failed to trigger snapshot update: %v", err)
+		}
+	}()
 
 	return proxyFromRow(proxy, endpoints), nil
 }
