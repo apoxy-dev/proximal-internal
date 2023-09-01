@@ -621,68 +621,73 @@ func (s *SnapshotManager) listenerResources(ctx context.Context, nodeID string, 
 	return []types.Resource{lst, intLst}, nil
 }
 
+func (s *SnapshotManager) setSnapshot(ctx context.Context, id int64, nodeID string, mds []*middlewarev1.Middleware) error {
+	info := s.cache.GetStatusInfo(nodeID)
+	nodepb := info.GetNode()
+	if nodepb == nil {
+		return fmt.Errorf("node %v not found", nodeID)
+	}
+
+	ersp, err := s.pSvc.ListProxyEndpoints(ctx, &proxyv1.ListProxyEndpointsRequest{
+		Key: nodeID,
+	})
+	if err != nil {
+		if status.Code(err) == codes.NotFound {
+			log.Warnf("no endpoints found for node id:%s, skipping snapshot (id:%d)", nodeID, id)
+			return nil
+		}
+		return fmt.Errorf("failed to list endpoints: %v", err)
+	}
+
+	cls, err := s.clusterResources(nodepb.Cluster, ersp.GetEndpoints())
+	if err != nil {
+		return err
+	}
+
+	ls, err := s.listenerResources(ctx, nodeID, mds)
+	if err != nil {
+		return err
+	}
+
+	log.Infof("syncing snapshot id:%d for node id:%s with %d endpoints", id, nodeID, len(ersp.GetEndpoints()))
+
+	snapshot, err := cache.NewSnapshot(
+		fmt.Sprintf("%d.0", id),
+		map[resource.Type][]types.Resource{
+			resource.ClusterType:  cls,
+			resource.ListenerType: ls,
+		},
+	)
+	if err != nil {
+		return err
+	}
+	if err := snapshot.Consistent(); err != nil {
+		return err
+	}
+
+	if err = s.cache.SetSnapshot(ctx, nodeID, snapshot); err != nil {
+		log.Warnf("error setting snapshot for node %s: %v", nodeID, err)
+	}
+
+	return nil
+}
+
 func (s *SnapshotManager) sync(ctx context.Context) error {
 	id := time.Now().Unix()
 
 	mrsp, err := s.mSvc.InternalList(ctx, &emptypb.Empty{})
-	if err != nil {
-		if status.Code(err) == codes.NotFound {
-			log.Infof("no middlewares found, skipping snapshot (id:%d)", id)
-			return nil
-		}
+	if err != nil && status.Code(err) != codes.NotFound {
 		return fmt.Errorf("failed to list middlewares: %v", err)
 	}
 
 	nodeIDs := s.cache.GetStatusKeys()
 	for _, nodeID := range nodeIDs {
-		info := s.cache.GetStatusInfo(nodeID)
-		nodepb := info.GetNode()
-		if nodepb == nil {
-			log.Warnf("no node found for nodeID:%v", nodeID)
+		if err := s.setSnapshot(ctx, id, nodeID, mrsp.GetMiddlewares()); err != nil {
+			log.Errorf("error syncing snapshot (id:%d) for node id:%s: %v", id, nodeID, err)
+			continue
 		}
 
-		ersp, err := s.pSvc.ListProxyEndpoints(ctx, &proxyv1.ListProxyEndpointsRequest{
-			Key: nodeID,
-		})
-		if err != nil {
-			if status.Code(err) == codes.NotFound {
-				log.Infof("no endpoints found, skipping snapshot (id:%d)", id)
-				return nil
-			}
-			return fmt.Errorf("failed to list endpoints: %v", err)
-		}
-
-		cls, err := s.clusterResources(nodepb.Cluster, ersp.GetEndpoints())
-		if err != nil {
-			return err
-		}
-
-		ls, err := s.listenerResources(ctx, nodeID, mrsp.GetMiddlewares())
-		if err != nil {
-			return err
-		}
-
-		log.Infof("syncing snapshot id:%d for node:%v with %d endpoints", id, nodeID, len(ersp.GetEndpoints()))
-
-		snapshot, err := cache.NewSnapshot(
-			fmt.Sprintf("%d.0", id),
-			map[resource.Type][]types.Resource{
-				resource.ClusterType:  cls,
-				resource.ListenerType: ls,
-			},
-		)
-		if err != nil {
-			return err
-		}
-		if err := snapshot.Consistent(); err != nil {
-			return err
-		}
-
-		if err = s.cache.SetSnapshot(ctx, nodeID, snapshot); err != nil {
-			log.Warnf("error setting snapshot for node %s: %v", nodeID, err)
-		}
-
-		log.Infof("successfully synced snapshot (id:%d) for %d endpoints", id, len(ersp.GetEndpoints()))
+		log.Infof("successfully synced snapshot id:%d for node id:%s", id, nodeID)
 	}
 
 	return nil
