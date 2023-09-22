@@ -189,3 +189,11 @@ func (r *Runtime) Stop() error {
 	close(r.exitCh)
 	return r.cmd.Process.Kill()
 }
+
+// Status returns the status of the Envoy process.
+func (r *Runtime) Status() *os.ProcessState {
+	if r.cmd == nil {
+		return nil
+	}
+	return r.cmd.ProcessState
+}
