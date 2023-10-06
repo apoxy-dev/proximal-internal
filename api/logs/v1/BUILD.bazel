@@ -6,7 +6,7 @@ load("@io_bazel_rules_go//proto:def.bzl", "go_proto_library")
 # gazelle:resolve proto proto envoy/data/accesslog/v3/http.proto //api/envoy/data/accesslog/v3:accesslogv3_proto
 
 # gazelle:resolve proto proto google/api/annotations.proto @googleapis//google/api:annotations_proto
-# gazelle:resolve proto go google/api/annotations.proto  @org_golang_google_genproto//googleapis/api/annotations
+# gazelle:resolve proto go google/api/annotations.proto  @org_golang_google_genproto_googleapis_api//annotations
 
 proto_library(
     name = "logsv1_proto",
@@ -35,7 +35,7 @@ go_proto_library(
     deps = [
         "@com_github_envoyproxy_go_control_plane//envoy/data/accesslog/v3:go_default_library",
         "@com_github_envoyproxy_go_control_plane//envoy/data/tap/v3:go_default_library",
-        "@org_golang_google_genproto//googleapis/api/annotations",
+        "@org_golang_google_genproto_googleapis_api//annotations",
     ],
 )
 

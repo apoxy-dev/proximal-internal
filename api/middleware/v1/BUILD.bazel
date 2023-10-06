@@ -3,7 +3,7 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library")
 load("@io_bazel_rules_go//proto:def.bzl", "go_proto_library")
 
 # gazelle:resolve proto proto google/api/annotations.proto @googleapis//google/api:annotations_proto
-# gazelle:resolve proto go google/api/annotations.proto  @org_golang_google_genproto//googleapis/api/annotations
+# gazelle:resolve proto go google/api/annotations.proto  @org_golang_google_genproto_googleapis_api//annotations
 
 proto_library(
     name = "middleware_proto",
@@ -25,7 +25,7 @@ go_proto_library(
     importpath = "github.com/apoxy-dev/proximal/api/middleware/v1",
     proto = ":middleware_proto",
     visibility = ["//visibility:public"],
-    deps = ["@org_golang_google_genproto//googleapis/api/annotations"],
+    deps = ["@org_golang_google_genproto_googleapis_api//annotations"],
 )
 
 go_library(

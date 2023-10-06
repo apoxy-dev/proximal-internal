@@ -3,7 +3,7 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library")
 load("@io_bazel_rules_go//proto:def.bzl", "go_proto_library")
 
 # gazelle:resolve proto proto google/api/annotations.proto @googleapis//google/api:annotations_proto
-# gazelle:resolve proto go google/api/annotations.proto  @org_golang_google_genproto//googleapis/api/annotations
+# gazelle:resolve proto go google/api/annotations.proto  @org_golang_google_genproto_googleapis_api//annotations
 
 proto_library(
     name = "proxyv1_proto",
@@ -28,7 +28,7 @@ go_proto_library(
     visibility = ["//visibility:public"],
     deps = [
         "//api/endpoint/v1:endpoint",
-        "@org_golang_google_genproto//googleapis/api/annotations",
+        "@org_golang_google_genproto_googleapis_api//annotations",
     ],
 )
 
