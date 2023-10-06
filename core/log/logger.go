@@ -26,7 +26,7 @@ func init() {
 		}
 		return a
 	}
-	logger = slog.New(slog.HandlerOptions{AddSource: true, ReplaceAttr: replace}.NewTextHandler(os.Stdout))
+	logger = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{AddSource: true, ReplaceAttr: replace}))
 	slog.SetDefault(logger)
 }
 

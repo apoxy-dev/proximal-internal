@@ -396,8 +396,8 @@ go_repository(
 go_repository(
     name = "org_golang_x_net",
     importpath = "golang.org/x/net",
-    sum = "h1:BONx9s002vGdD9umnlX1Po8vOZmrgH34qlHcD1MfK14=",
-    version = "v0.14.0",
+    sum = "h1:7eBu7KsSvFDtSXUIDbh3aqlK4DPsZ1rByC8PFfBThos=",
+    version = "v0.16.0",
 )
 
 go_repository(
@@ -410,15 +410,15 @@ go_repository(
 go_repository(
     name = "org_golang_x_sys",
     importpath = "golang.org/x/sys",
-    sum = "h1:eG7RXZHdqOJ1i+0lgLgCpSXAp6M3LYlAo6osgSi0xOM=",
-    version = "v0.11.0",
+    sum = "h1:Af8nKPmuFypiUBjVoU9V20FiaFXOcuZI21p0ycVYYGE=",
+    version = "v0.13.0",
 )
 
 go_repository(
     name = "org_golang_x_text",
     importpath = "golang.org/x/text",
-    sum = "h1:k+n5B8goJNdU7hSvEtMUz3d1Q6D/XW4COJSJR6fN0mc=",
-    version = "v0.12.0",
+    sum = "h1:ablQoSUd0tRdKxZewP80B+BaqeKJuVhuRxj/dkrun3k=",
+    version = "v0.13.0",
 )
 
 go_repository(
@@ -2565,6 +2565,10 @@ go_repository(
 
 go_repository(
     name = "io_temporal_go_server",
+    build_directives = [
+        # Remap to legacy version of slices package.
+        "gazelle:resolve go golang.org/x/exp/slices @org_golang_x_exp_legacy//slices",
+    ],
     build_file_proto_mode = "disable_global",
     importpath = "go.temporal.io/server",
     sum = "h1:MLkw3wdg2fmJZZWvP+nKH9Gtqm2GL3x7CTwdlcE0bIQ=",
@@ -2602,15 +2606,27 @@ go_repository(
 go_repository(
     name = "org_golang_x_crypto",
     importpath = "golang.org/x/crypto",
-    sum = "h1:tFM/ta59kqch6LlvYnPa0yx5a83cL2nHflFhYKvv9Yk=",
-    version = "v0.12.0",
+    sum = "h1:wBqGXzWJW6m1XrIKlAH0Hs1JJ7+9KBwnIO8v66Q9cHc=",
+    version = "v0.14.0",
+)
+
+go_repository(
+    name = "org_golang_x_exp_legacy",
+    build_directives = [
+        # Set importmap prefix to a different path so that linker doesn't complain
+        # about different repos linking with the same import path.
+        "gazelle:importmap_prefix golang.org/exp-legacy/slices",
+    ],
+    importpath = "golang.org/x/exp",
+    sum = "h1:pVgRXcIictcr+lBQIFeiwuwtDIs4eL21OuM9nyAADmo=",
+    version = "v0.0.0-20230315142452-642cacee5cc0",
 )
 
 go_repository(
     name = "org_golang_x_exp",
     importpath = "golang.org/x/exp",
-    sum = "h1:pVgRXcIictcr+lBQIFeiwuwtDIs4eL21OuM9nyAADmo=",
-    version = "v0.0.0-20230315142452-642cacee5cc0",
+    sum = "h1:jtJma62tbqLibJ5sFQz8bKtEM8rJBtfilJ2qTU199MI=",
+    version = "v0.0.0-20231006140011-7918f672742d",
 )
 
 go_repository(
@@ -2637,22 +2653,22 @@ go_repository(
 go_repository(
     name = "org_golang_x_mod",
     importpath = "golang.org/x/mod",
-    sum = "h1:lFO9qtOdlre5W1jxS3r/4szv2/6iXxScdzjoBMXNhYk=",
-    version = "v0.10.0",
+    sum = "h1:I/DsJXRlw/8l/0c24sM9yb0T4z9liZTduXvdAWYiysY=",
+    version = "v0.13.0",
 )
 
 go_repository(
     name = "org_golang_x_sync",
     importpath = "golang.org/x/sync",
-    sum = "h1:PUR+T4wwASmuSTYdKjYHI5TD22Wy5ogLU5qZCOLxBrI=",
-    version = "v0.2.0",
+    sum = "h1:zxkM55ReGkDlKSM+Fu41A+zmbZuaPVbGMzvvdUPznYQ=",
+    version = "v0.4.0",
 )
 
 go_repository(
     name = "org_golang_x_term",
     importpath = "golang.org/x/term",
-    sum = "h1:F9tnn/DA/Im8nCwm+fX+1/eBwi4qFjRT++MhtVC4ZX0=",
-    version = "v0.11.0",
+    sum = "h1:bb+I9cTfFazGW51MZqBVmZy7+JEJMouUHTUSKVQLBek=",
+    version = "v0.13.0",
 )
 
 go_repository(
@@ -2665,8 +2681,8 @@ go_repository(
 go_repository(
     name = "org_golang_x_tools",
     importpath = "golang.org/x/tools",
-    sum = "h1:8WMNJAz3zrtPmnYC7ISf5dEn3MT0gY7jBJfw27yrrLo=",
-    version = "v0.9.1",
+    sum = "h1:jvNa2pY0M4r62jkRQ6RwEZZyPcymeL9XZMLBbV7U2nc=",
+    version = "v0.14.0",
 )
 
 go_repository(
